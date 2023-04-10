@@ -491,7 +491,227 @@ public class TestFileChannleTransferTo {
 
 ### Path
 
-观看进度:https://www.bilibili.com/video/BV1py4y1E7oA?p=18&vd_source=000766059912952028e3af1ddb9f2463
+jdk7引入Path和Paths类
+
+- Path用来表示文件路径
+- Paths是工具类，用于获取Path实例
+
+```java
+Path source = Path.get("1.txt"); //相对路径，使用user.dir环境变量来定位1.txt
+Path source = Paths.get("d:\\1.txt"); //绝对路径代表了d:\1.txt
+Path source = Paths.get("d:/1.txt"); //绝对路径代表了d:\1.txt
+Path project = Paths.get("d:\\data","projects"); //代表了 d:\data\project
+```
+
+- ==**.**==代表了当前路径
+- ==**..**==代表了上一级路径
+
+例如目录结构如下所示
+
+```
+d:
+		|- data
+			|- projects
+					|- a
+					|- b
+```
+
+代码
+
+```java
+Path path = Paths.get("d:\\data\\project\\a..\\b");
+System.out.println(path);
+System.out.println(path.normalize()); //正常化路径
+```
+
+会输出
+
+```
+d:\data\project\a..\b
+d:\data\project\b
+```
+
+### Files
+
+检查文件是否存在
+
+```java
+Path path = Paths.get("helloworld/d1");
+System.out.println(Files.existis(path)); //检查文件是否存在
+```
+
+创建一级目录
+
+```java
+Path path = Paths.get("helloworld/d1");
+Files.createDirectory(path);
+```
+
+- 如果目录已经存在，会抛异常FileAlreadyExistsException
+- 不能一次创建多级目录，否则会抛异常NoSuchFileException
+
+创建多级目录
+
+```
+Path path = Paths.get("helloworld/d1/d2");
+Files.createDirectories(path);
+```
+
+拷贝文件
+
+```java
+Path source = Paths.get("helloworld/d1/data.txt");
+Path target = Paths.get("helloworld/d1/target.txt");
+Files.copy(source,target);
+```
+
+- 如果文件已存在，会抛异常FileAlreadyExistsException
+- 如果希望source覆盖target，需要用StandardCopyOption来控制
+
+```java
+Files.copy(source,target,StandardCopyOption.REPLACE_EXISTING);
+```
+
+移动文件
+
+```java
+Path source = Paths.get("helloworld/d1/data.txt");
+Path target = Paths.get("helloworld/d1/data.txt");
+Files.move(source,target,StandardCopyOption.ATOMIC_MOVE);
+```
+
+- StandardCopyOption.ATOMIC_MOVE 保证文件移动的原子性
+
+删除文件
+
+```java
+Path target = Paths.get("helloworld/d1/data.txt");
+Files.delete(target);
+```
+
+删除目录
+
+```java
+Path path = Paths.get("helloworld/d1");
+Files.delete(target);
+```
+
+- 如果目录还有内容，会抛异常DirectoryNotEmptyException
+
+遍历文件
+
+```java
+public class TestFilesWalkFileTree {
+    public static void main(String[] args) throws IOException {
+        //创建两个原子性的参数,用于计数
+        AtomicInteger dirCount = new AtomicInteger();
+        AtomicInteger fileCount = new AtomicInteger();
+        AtomicInteger jarCount = new AtomicInteger();
+
+        //遍历目录
+        Files.walkFileTree(Paths.get("/Library/Java/JavaVirtualMachines/jdk1.8.0_321.jdk"),new SimpleFileVisitor<Path>(){
+            //进入文件夹前的操作
+            @Override
+            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
+                dirCount.incrementAndGet();
+                System.out.println("=======>"+dir);
+                return super.preVisitDirectory(dir, attrs);
+            }
+
+            //对文件的操作
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                fileCount.incrementAndGet();
+                System.out.println("=========>"+file);
+                if((file.toString()).endsWith(".jar")){
+                    System.out.println(file);
+                    jarCount.incrementAndGet();
+                }
+                return super.visitFile(file, attrs);
+            }
+
+            //遍历文件失败的操作
+            @Override
+            public FileVisitResult visitFileFailed(Path file, IOException exc) throws IOException {
+                return super.visitFileFailed(file, exc);
+            }
+
+            //遍历文件之后的操作
+            @Override
+            public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
+                return super.postVisitDirectory(dir, exc);
+            }
+        });
+
+        //输出参数
+        System.out.println("dir count:"+dirCount);
+        System.out.println("file count:"+fileCount);
+        System.out.println("jar count:"+jarCount);
+    }
+}
+```
+
+逐级删除文件
+
+```java
+public class TestFilesWalkTreeDelete {
+    public static void main(String[] args) throws IOException {
+//        Files.deleteIfExists(Paths.get("/Users/pengjing/Downloads/nacos-2.2.1-RC"));
+        //逐级删除目录
+        Files.walkFileTree(Paths.get("/Users/pengjing/Downloads/nacos-2.2.1-RC"),new SimpleFileVisitor<Path>(){
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                System.out.println(file);
+                Files.deleteIfExists(file);
+                System.out.println("删除了======>"+file.toString());
+                return super.visitFile(file, attrs);
+            }
+
+            @Override
+            public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
+                System.out.println("得到的文件夹是:"+dir);
+                Files.deleteIfExists(dir);
+                System.out.println("删除的文件夹是:"+dir);
+                return super.postVisitDirectory(dir, exc);
+            }
+        });
+    }
+}
+```
+
+多级目录的拷贝
+
+```java
+public class TestFilesWalkTreeCopy {
+    public static void main(String[] args) throws IOException {
+        //复制多级目录的文件
+        String source = "/Users/pengjing/Downloads/文档";
+        String target = "/Users/pengjing/Downloads/文档1";
+
+            Files.walk(Paths.get(source)).forEach(path -> {
+        try {
+                //相当于讲前面的替换，然后在后面如果是文件夹就创建文件夹，如果是文件就执行复制
+                String targetName = path.toString().replace(source, target);
+                //创建目标文件夹
+                if(Files.isDirectory(path)){
+                    Files.createDirectory(Paths.get(targetName));
+                }else if(Files.isRegularFile(path)){
+                    //执行拷贝
+                    Files.copy(path,Paths.get(targetName));
+                }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+            });
+    }
+}
+```
+
+## 网络编程
+
+### 阻塞VS非阻塞
+
+视频进度:https://www.bilibili.com/video/BV1py4y1E7oA/?p=24&spm_id_from=pageDriver&vd_source=000766059912952028e3af1ddb9f2463
 
 # Netty入门学习
 
