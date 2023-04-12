@@ -3,7 +3,6 @@ package com.nioDemo.nioWebSocket;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.channels.SocketChannel;
-import java.nio.charset.StandardCharsets;
 
 /**
  * @Description:
@@ -15,6 +14,6 @@ public class Client {
         SocketChannel sc = SocketChannel.open();
         sc.connect(new InetSocketAddress("localhost",8080));
         System.out.println("waiting.......");
-        sc.write(StandardCharsets.UTF_8.encode("123456789"));
+//        sc.write(StandardCharsets.UTF_8.encode("123456789"));
     }
 }
