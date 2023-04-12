@@ -711,7 +711,276 @@ public class TestFilesWalkTreeCopy {
 
 ### 阻塞VS非阻塞
 
-视频进度:https://www.bilibili.com/video/BV1py4y1E7oA/?p=24&spm_id_from=pageDriver&vd_source=000766059912952028e3af1ddb9f2463
+共用的客户端
+
+```java
+public class Client {
+    public static void main(String[] args) throws IOException {
+        //创建客户端对象
+        SocketChannel sc = SocketChannel.open();
+        sc.connect(new InetSocketAddress("localhost",8080));
+        System.out.println("waiting.......");
+//        sc.write(StandardCharsets.UTF_8.encode("123456789"));
+    }
+}
+```
+
+阻塞模式的服务器端
+
+```java
+@Slf4j
+public class Server {
+    public static void main(String[] args) throws IOException {
+        //使用nio理解阻塞模式 单线程
+        //0 ByteBuffer
+        ByteBuffer buffer = ByteBuffer.allocate(16);
+
+        //1 创建服务器
+        ServerSocketChannel ssc = ServerSocketChannel.open();
+
+        //2 绑定端口
+        ssc.bind(new InetSocketAddress(8080));
+
+        //3 连接集合
+        List<SocketChannel> channels = new ArrayList<>();
+        while(true){
+            //accept 建立客户端连接 SocketChannel 用来与客户端之间通信
+            log.debug("connecting.......");
+            //阻塞方法,线程停止运行
+            SocketChannel channel = ssc.accept();
+
+            log.debug("connected.....{}",channel);
+            channels.add(channel);
+
+            //遍历集合,获取消息
+            channels.stream().forEach(a->{
+                try {
+                    //阻塞方法,线程停止运行
+                    a.read(buffer);
+                    log.debug("berfer read.......{}",a);
+                    buffer.flip();
+                    debugRead(buffer);
+                    //切换到写模式,重置postiion
+                    buffer.clear();
+                    log.debug("after read....{}",a);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            });
+        }
+    }
+}
+```
+
+非阻塞模式的服务器端
+
+```java
+@Slf4j
+public class ServerNoBlocking {
+    public static void main(String[] args) throws IOException {
+        //非阻塞模式的展示
+        //0 ByteBuffer
+        ByteBuffer buffer = ByteBuffer.allocate(16);
+
+        //1 创建服务器
+        ServerSocketChannel ssc = ServerSocketChannel.open();
+        //开启ServerSocketChannel的非阻塞模式,影响的是ssc.accept()的代码
+        ssc.configureBlocking(false);
+        //2 绑定端口
+        ssc.bind(new InetSocketAddress(8080));
+
+        //3 连接集合
+        List<SocketChannel> channels = new ArrayList<>();
+        while(true){
+            //accept 建立客户端连接 SocketChannel 用来与客户端之间通信
+            SocketChannel sc = ssc.accept();
+
+            if(Optional.ofNullable(sc).isPresent()) {
+                log.debug("connected.....{}", sc);
+
+                //将SocketChannel设置以为非阻塞模式,影响的是读取数据的方法a.read(buffer);
+                sc.configureBlocking(false); //非阻塞模式 线程还会继续运行,如果没有链接建立,但sc是null;
+
+                channels.add(sc);
+            }
+            //遍历集合,获取消息
+            channels.stream().forEach(a->{
+                try {
+                    int read = a.read(buffer);//非阻塞,线程仍会继续运行,如果没有读到数据,read会返回0
+                    if(read >0) {
+                        buffer.flip();
+                        debugRead(buffer);
+                        //切换到写模式,重置postiion
+                        buffer.clear();
+                        log.debug("after read....{}", a);
+                    }
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            });
+        }
+    }
+}
+```
+
+1. 阻塞模式对资源的运用不是太大，会造成项目完成的效率
+2. 非阻塞模式，因为会一直空转，就会导致cpu的占用率很高，服务器压力就会变得很大
+3. 非阻塞模式的开启
+   1. ssc.configureBlocking(false); //开启就收客户端连接的非阻塞模式
+   2. sc.configureBlocking(false); //开启读取消息的非阻塞模式
+
+### Selector
+
+### 处理accept
+
+==**要点**==
+
+- 使用selector的时候,需要将ServerSocketChannel开启非阻塞模式
+- 事件到来需要处理，不处理的话会一直循环，直到事件处理完毕
+- 使用==**key.cancel()**==; 来取消事件
+
+```java
+@Slf4j
+public class Server2Selector {
+    public static void main(String[] args) throws IOException {
+        //1 创建 Selector 管理多个channel
+        Selector selector = Selector.open();
+
+
+        ByteBuffer buffer = ByteBuffer.allocate(16);
+
+        //1 创建服务器
+        ServerSocketChannel ssc = ServerSocketChannel.open();
+        //使用selector的时候,需要将ServerSocketChannel开启非阻塞模式
+        ssc.configureBlocking(false);
+        //2 建立Selector 和channel的联系(注册)
+        /**
+         * 事件有多个类型
+         * 1.accpet  --会在有连接请求时触发
+         * 2.connect --是客户端连接建立后触发
+         * 3.read --读取客户端发送的信息后触发
+         * 4.write --可写事件
+         */
+        SelectionKey ssckey = ssc.register(selector, 0, null);
+        //key只关注accept事件
+        ssckey.interestOps(SelectionKey.OP_ACCEPT);
+        log.debug("regeister key:{}",ssckey);
+
+        ssc.bind(new InetSocketAddress(8080));
+
+        while(true){
+           //3select方法 没有事件发生,线程阻塞,有事件发生,线程恢复运行
+          //select 在事件未处理时，他不会阻塞，事件发生后要么处理，要么取消，不能置之不理
+            selector.select();
+            //4 处理事件 selectedKeys 内部包含了所有发生的事件 获取所有的可读可写的事件的集合
+            Iterator<SelectionKey> iterator = selector.selectedKeys().iterator();
+            while(iterator.hasNext()){
+                SelectionKey key = iterator.next();
+                log.debug("key,{}",key);
+                ServerSocketChannel channel = (ServerSocketChannel)key.channel();
+                SocketChannel accept = channel.accept();
+                accept.configureBlocking(false);
+                log.debug("{}",accept);
+                //取消任务
+                key.cancel();
+            }
+        }
+    }
+}
+```
+
+#### 处理read
+
+==**要点**==
+
+- 创建一个selector对象，里面装的是selectorkey
+- 发生事件之后，==**selector.select()**==;会将selector中的selectorkey添加到selector.selectedKeys()集合中，对象是一样的，但是存在不同的集合。但是它只会添加对象，不会删除。==**如果事件被处理，只会删除相关的value值，但是不会删除他的key，就会导致能进入if的分支，但是会出现空指针异常**==
+
+```java
+@Slf4j
+public class Server2SelectorUseRead {
+    public static void main(String[] args) throws IOException {
+        //获取Selector
+        Selector selector = Selector.open();
+
+        //创建ServerSocketChannel
+        ServerSocketChannel ssc = ServerSocketChannel.open();
+        //开启他的非阻塞模式
+        ssc.configureBlocking(false);
+
+        //将ServerSocketChannel注册到selector中
+        SelectionKey ssckey = ssc.register(selector, 0, null);
+        ssckey.interestOps(SelectionKey.OP_ACCEPT);
+        log.debug("key:{}",ssckey);
+        //绑定ServerSocketChannel的端口号
+        ssc.bind(new InetSocketAddress(8080));
+
+        while (true){
+            selector.select();
+            //获取selector中的key
+            Iterator<SelectionKey> iterator = selector.selectedKeys().iterator();
+            while(iterator.hasNext()){
+                SelectionKey key = iterator.next();
+                log.debug("迭代器里面的key是:{}",key);
+                //selector会在事件后,向selectedKeys集合中添加key,但是不删除,如果不删除,就会导致后续的循环一直在accept的if分支里面,从而会出现空指针异常
+                iterator.remove();
+                //判断key是属于什么事件
+                if(key.isAcceptable()){
+                    log.debug("========开始,sc.accept");
+                    ServerSocketChannel channel = (ServerSocketChannel)key.channel();
+                    SocketChannel sc = channel.accept();
+                    sc.configureBlocking(false);
+                    sc.register(selector,SelectionKey.OP_READ,null);
+                    log.debug("{}",sc);
+                }else if(key.isReadable()){
+                    log.debug("========开始,sc.read");
+                    SocketChannel sc = (SocketChannel)key.channel();
+                    ByteBuffer buffer = ByteBuffer.allocate(16);
+                    sc.read(buffer);
+                    log.debug("{}",sc);
+                    buffer.flip();
+                    debugRead(buffer);
+                    buffer.clear();
+                }
+            }
+        }
+    }
+}
+```
+
+客户端断开问题解决
+
+```java
+try {
+  log.debug("========开始,sc.read");
+  SocketChannel sc = (SocketChannel)key.channel();
+  ByteBuffer buffer = ByteBuffer.allocate(16);
+  int read = sc.read(buffer);
+  //如果是正常断开,read的返回值就是-1
+  if(read == -1){
+    key.cancel();
+  }else {
+    log.debug("{}", sc);
+    buffer.flip();
+    debugRead(buffer);
+    buffer.clear();
+  }
+} catch (IOException e) {
+  e.printStackTrace();
+  //因为客户端断开,需要将key取消(从selector的key中真正删除key)
+  key.cancel();
+}
+```
+
+消息边界问题
+
+- 固定消息长度，数据包大小一样，服务器按照预定长度读取，缺点浪费宽带
+- 按照分隔符拆分，缺点效率低
+- TLV格式，即Type类型，Length长度，Value数据，类型和长度已知的情况下，就可以方便获取消息大小，分配合适的buffer，缺点buffer需要提前分配，如果内容过大，则影响server吞吐量
+  - Http1.1是TLV格式
+  - Http2.0是LTV格式
+
+视频进度：https://www.bilibili.com/video/BV1py4y1E7oA/?p=33&spm_id_from=pageDriver&vd_source=000766059912952028e3af1ddb9f2463
 
 # Netty入门学习
 
