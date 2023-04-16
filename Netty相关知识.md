@@ -930,6 +930,7 @@ public class Server2SelectorUseRead {
                     ServerSocketChannel channel = (ServerSocketChannel)key.channel();
                     SocketChannel sc = channel.accept();
                     sc.configureBlocking(false);
+                  //在连接事件中将SockerChannel注册到选择器中
                     sc.register(selector,SelectionKey.OP_READ,null);
                     log.debug("{}",sc);
                 }else if(key.isReadable()){
@@ -980,7 +981,108 @@ try {
   - Http1.1是TLV格式
   - Http2.0是LTV格式
 
-视频进度：https://www.bilibili.com/video/BV1py4y1E7oA/?p=33&spm_id_from=pageDriver&vd_source=000766059912952028e3af1ddb9f2463
+##### 使用\n等特定的分隔符会出现的问题
+
+- 如果接收的bytebuffer是一个局部变量，会导致接收的数据一直是超过的容量的最后的数据
+- 如果将bytebuffer设置为全局变量，会导致读取的数据都是前面的最大容量的数据,单使用bytebuffer的模拟，是会报错的，但是在SockerChannel中不会报错，显示的是能接收到的最大的数据
+- 在sockerchannel中如果数据超过接收的最大值，会进入两次循环读取
+- 在将bytebuffer不放在局部变量时，需要考虑的是bytebuffer的共用问题，可以使用选择器的附件模式
+
+##### 要点
+
+- sockerchannle的附件使用方式
+- 接收数据的Bytebuffer的使用范围
+
+```java
+@Slf4j
+public class Server2SelecrotByRead {
+    public static void main(String[] args) throws IOException {
+        Selector selector = Selector.open();
+        ServerSocketChannel ssc = ServerSocketChannel.open();
+        log.debug("得到的ssc为{}",ssc);
+        ssc.configureBlocking(false);
+        ssc.bind(new InetSocketAddress(8080));
+        SelectionKey selectionKey = ssc.register(selector, SelectionKey.OP_ACCEPT, null);
+        log.debug("得到的selectionkey是:{}",selectionKey);
+        while(true){
+            selector.select();
+            Iterator<SelectionKey> iterator = selector.selectedKeys().iterator();
+            while(iterator.hasNext()){
+                SelectionKey key = iterator.next();
+                log.debug("d得到的key是:{}",key);
+                iterator.remove();
+                if(key.isAcceptable()){
+                    ServerSocketChannel ssckey =(ServerSocketChannel) key.channel();
+                    ssckey.configureBlocking(false);
+                    ByteBuffer buffer = ByteBuffer.allocate(1<<4);
+                  
+                    //第三个参数,表示的是附件,作为附件关联到selectionkey上
+                    SocketChannel sc = ssckey.accept();
+                    sc.configureBlocking(false);
+                    sc.register(selector,SelectionKey.OP_READ,buffer);
+                  
+                }else if(key.isReadable()){
+                    try{
+                    SocketChannel sckey =(SocketChannel) key.channel();
+                      
+                    //获取selectiokey上关联的附件
+                    ByteBuffer buffer =(ByteBuffer) key.attachment();
+                    int read = sckey.read(buffer);
+                      
+                    debugAll(buffer);
+                    if(read == -1){
+                        key.cancel();
+                    }
+                    splite(buffer);
+                      
+                    //如果buffer的position和limite长度一样,就表示需要扩容
+                        if(buffer.position() == buffer.limit()){
+                            //扩容为之前的两倍
+                            ByteBuffer newBytebuffer = ByteBuffer.allocate(buffer.capacity() * 2);
+                            buffer.flip();
+                            newBytebuffer.put(buffer);
+                            key.attach(newBytebuffer);
+                        }
+
+                } catch (Exception e){
+                    e.printStackTrace();
+                    key.cancel();
+                    }
+                }
+            }
+        }
+    }
+
+    private static void splite(ByteBuffer buffer) {
+        buffer.flip();
+        int limit = buffer.limit();
+        for(int i=0;i<limit;i++){
+            if(buffer.get(i)=='\n'){
+                //这是一条完整的数据
+                int length = i+1-buffer.position();
+                ByteBuffer targer = ByteBuffer.allocate(length);
+                for(int j = 0 ; j< targer.limit();j++){
+                    targer.put(buffer.get());
+                }
+                debugAll(targer);
+            }
+        }
+        buffer.compact();
+    }
+
+}
+```
+
+##### BytebuBuffer的扩容问题
+
+- 每个channel都需要记录可能被切分消息，因为ByteBuffer不是线程安全的，因此需要为每个channel维护一个独立的ByteBuffer
+- ByteBuffer不能太大，比如一个ByteBuffer为1MB的话，要支持百万连接就需要1TB内存，因此需要设计大小可变的ByteBuffer
+  - 首先的分配较小的buffer，例如4K，如果发现数据不够，在分配8K的buffer，将4Kbuffer内容拷贝至8K buffer，优点是消息连续容易处理，缺点是数据拷贝消耗性能，参考实现：https://jenkov.com/tutorials/java-performance/resizable-array.html
+  - 第二种:使用多个数据组成buffer，一个数组不够，把多出来的内容写到新的数组，与前面的区别是消息存储不连续解析复杂，优点是避免了拷贝引起的性能损耗
+
+#### 处理写事件
+
+视频进度：https://www.bilibili.com/video/BV1py4y1E7oA/?p=37&spm_id_from=pageDriver&vd_source=000766059912952028e3af1ddb9f2463
 
 # Netty入门学习
 
