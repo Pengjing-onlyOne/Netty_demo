@@ -1082,7 +1082,203 @@ public class Server2SelecrotByRead {
 
 #### 处理写事件
 
-视频进度：https://www.bilibili.com/video/BV1py4y1E7oA/?p=37&spm_id_from=pageDriver&vd_source=000766059912952028e3af1ddb9f2463
+##### 会出现的问题
+
+```java
+public class Server2SelectorByWrite {
+    public static void main(String[] args) throws IOException {
+        Selector selector = Selector.open();
+
+        ServerSocketChannel ssc  = ServerSocketChannel.open();
+        ssc.bind(new InetSocketAddress(8080));
+        ssc.configureBlocking(false);
+        ssc.register(selector, SelectionKey.OP_ACCEPT,null);
+        while(true){
+            selector.select();
+
+            Iterator<SelectionKey> iterator = selector.selectedKeys().iterator();
+
+            while(iterator.hasNext()){
+                SelectionKey next = iterator.next();
+                iterator.remove();
+                if(next.isAcceptable()){
+                    ServerSocketChannel ssckey =(ServerSocketChannel) next.channel();
+                    SocketChannel sc = ssckey.accept();
+                    sc.configureBlocking(false);
+                    //向客户端发送大量数据
+                    StringBuilder sb = new StringBuilder();
+                    for (int i = 0; i < 3000000; i++) {
+                        sb.append("a");
+                    }
+                    ByteBuffer buffer = StandardCharsets.UTF_8.encode(sb.toString());
+                    while(buffer.hasRemaining()){
+                        int writer = sc.write(buffer);
+                        System.out.println(writer);
+                    }
+                }
+            }
+        }
+    }
+}
+/**
+ * 控制台打印的结果:
+ * 261676
+ * 719752
+ * 0
+ * 0
+ * 0
+ * 588992
+ * 810228
+ * 196036
+ * 0
+ * 40960
+ * 382356
+ * 会导致不是非阻塞,在写缓冲区满的时候会在等待,需要给他优化
+ */
+```
+
+##### 优化
+
+```java
+public class Server2SelectorByWrite {
+    public static void main(String[] args) throws IOException {
+        Selector selector = Selector.open();
+
+        ServerSocketChannel ssc  = ServerSocketChannel.open();
+        ssc.bind(new InetSocketAddress(8080));
+        ssc.configureBlocking(false);
+        ssc.register(selector, SelectionKey.OP_ACCEPT,null);
+
+
+        while(true){
+            selector.select();
+
+            Iterator<SelectionKey> iterator = selector.selectedKeys().iterator();
+
+            while(iterator.hasNext()){
+                SelectionKey key = iterator.next();
+                iterator.remove();
+                if(key.isAcceptable()){
+
+                    ServerSocketChannel ssckey =(ServerSocketChannel) key.channel();
+                    SocketChannel sc = ssckey.accept();
+
+                    sc.configureBlocking(false);
+
+                    SelectionKey sckey = sc.register(selector, 0, null);
+
+                    //向客户端发送大量数据
+                    StringBuilder sb = new StringBuilder();
+                    for (int i = 0; i < 3000000; i++) {
+                        sb.append("a");
+                    }
+
+                    ByteBuffer buffer = StandardCharsets.UTF_8.encode(sb.toString());
+                        int writer = sc.write(buffer);
+                        System.out.println(writer);
+                        //判断是否还有数据没有写完
+                        if(buffer.hasRemaining()){
+                            //关注可写事件 读事件是1 写事件是2
+                            sckey.interestOps(sckey.interestOps() + SelectionKey.OP_WRITE);
+                            sckey.attach(buffer);
+                        }
+                }else if(key.isWritable()){
+                    ByteBuffer buffer = (ByteBuffer) key.attachment();
+                    SocketChannel socketChannel = (SocketChannel) key.channel();
+                    int write = socketChannel.write(buffer);
+                    System.out.println(write);
+
+                    //清理操作
+                    if(!buffer.hasRemaining()){
+                        //清除buffer
+                        key.attach(null);
+                        //数据写完不需要关注可写事件
+                        key.interestOps(key.interestOps() - SelectionKey.OP_WRITE);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 控制台打印的结果:
+ * 482340
+ * 220820
+ * 679468
+ * 802036
+ * 637884
+ * 177452
+ */
+```
+
+#### 网络编程小结
+
+##### 阻塞
+
+- 阻塞模式下，相关方法会导致线程暂停
+  - ServerSocketChannel.accept()会在没有连接建立时让线程暂停
+  - SocketChannel.read会在没有数据可读时让线程暂停
+  - 阻塞的表现其实就是线程暂停，暂停期间不会占用cup，但线程相当于闲置
+- 单线程下，阻塞方法之间相互影响，几乎不能正常工作，需要多线程支持
+- 但多线程下，有新的问题，体现在以下几个方面
+  - 32为JVM一个线程320k，64位JVM一个线程1024k，如果连接数过多，不然导致OOM，并且线程太多，反而会因为频繁上下文切换导致性能降低
+  - 可以采用线程池技术来减少线程数和线程上下文切换，但治标不治本，如果有很多建立连接，但长时间inactive，会阻塞线程池中所有线程，因此不适合长连接，只适合短连接
+
+##### 多路复用
+
+单线程可以配合selector完成多个Channel可读可写事件的监控，这称之为多路复用
+
+- 多路复用仅针对网络IO，普通文件没法利用多路复用
+- 如果不用Selector的非阻塞模式，线程大部分时间都在做无用功，而Selector能够保证
+  - 有连接事件时才回去连接
+  - 有可读事件才去读取
+  - 有可写事件才去写入
+    - 限于网络传输能力，Channel未必时时可写，一但Channel可写，会触发Selector的可写事件
+
+监听Channel事件
+
+可以通过下面三种方法来监听事件是否发生吗，方法的返回值代表有多少Channel发生了事件
+
+1. 阻塞知道绑定事件发生
+
+   ```java
+   int count = selecor.select();
+   ```
+
+2. 阻塞知道绑定事件发生，或是超时（时间单位为ms）
+
+   ```java
+   int count = selecor.select(long timeout);
+   ```
+
+3. 不会阻塞，也就是不管有没有事件发生，立刻返回，自己根据返回值检查是否有事件
+
+   ```java
+   int count = selector.selectorNpw();
+   ```
+
+##### selector何时不阻塞
+
+- 事件发生
+  - 客户端发起连接诶请求，会触发accept事件
+  - 客户端发送数据过来，客户端正常，异常关闭时，都会触发read事件，另外如果发送的数据大于buffer缓冲区，会触发多次读取事件
+  - channel可写，会触发wroter事件
+  - 在linux下nio bug时
+- 调用selector.wakeup()
+- 调用selector.close()
+- selector所在贤臣interrupt	
+
+#### NIO多线程编程
+
+##### 使用多线程优化
+
+现在都是多核CPU，设计时需要充分考虑别让CPU的力量白白浪费
+
+- 单线程配一个选择器，专门处理accpet事件
+- 创建cpu核心线程数，每一个线程配一个选择器，轮流处理read事件
+
+视频进度: https://www.bilibili.com/video/BV1py4y1E7oA/?p=41&spm_id_from=pageDriver&vd_source=000766059912952028e3af1ddb9f2463
 
 # Netty入门学习
 
