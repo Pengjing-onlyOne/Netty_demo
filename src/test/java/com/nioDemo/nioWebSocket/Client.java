@@ -15,8 +15,7 @@ public class Client {
         SocketChannel sc = SocketChannel.open();
         sc.connect(new InetSocketAddress("localhost",8080));
         System.out.println("waiting.......");
-        sc.write(StandardCharsets.UTF_8.encode("1234567\n890abcdef3333"));
-        sc.write(StandardCharsets.UTF_8.encode("1234567890abcdef33\n"));
+        sc.write(StandardCharsets.UTF_8.encode("1234567890abc"));
         System.in.read();
     }
 }
