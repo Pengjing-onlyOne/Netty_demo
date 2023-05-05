@@ -1278,7 +1278,217 @@ public class Server2SelectorByWrite {
 - 单线程配一个选择器，专门处理accpet事件
 - 创建cpu核心线程数，每一个线程配一个选择器，轮流处理read事件
 
-视频进度: https://www.bilibili.com/video/BV1py4y1E7oA/?p=41&spm_id_from=pageDriver&vd_source=000766059912952028e3af1ddb9f2463
+##### 多线程版的实现
+
+```java
+@Slf4j
+public class MultiThreadServer {
+    public static void main(String[] args) throws IOException {
+        Thread.currentThread().setName("boss");
+        ServerSocketChannel ssc = ServerSocketChannel.open();
+        ssc.bind(new InetSocketAddress(8080));
+        ssc.configureBlocking(false);
+
+        Selector boss = Selector.open();
+
+        ssc.register(boss, SelectionKey.OP_ACCEPT,null);
+        Worker worker = new Worker("worker-01");
+        worker.regest();
+        while(true){
+            boss.select();
+            Iterator<SelectionKey> iterator = boss.selectedKeys().iterator();
+            while(iterator.hasNext()){
+                SelectionKey key = iterator.next();
+                iterator.remove();
+                if(key.isAcceptable()){
+                    //如果是一个连接事件
+                    ServerSocketChannel  ssc_1 = (ServerSocketChannel) key.channel();
+                    SocketChannel sc = ssc_1.accept();
+                    sc.configureBlocking(false);
+                    log.debug("connected........{}",sc.getRemoteAddress());
+                    sc.register(worker.selector,SelectionKey.OP_READ,null);
+                }
+            }
+        }
+    }
+
+    //创建一个worker对象,用于读取数据
+    static class Worker implements Runnable{
+        private Selector selector;
+        private Thread thread;
+        private String name;
+        private ConcurrentLinkedQueue<Runnable> queue = new ConcurrentLinkedQueue<>();
+        private volatile boolean start = false;
+
+        public Worker(String name){
+            this.name = name;
+        }
+
+        public void regest() throws IOException {
+            if(!start) {
+                selector = Selector.open();
+                thread = new Thread(this, name);
+                thread.start();
+                start = true;
+            }
+          /*  queue.add(()->{
+                try {
+                    sc.register(selector,SelectionKey.OP_READ,null);
+                } catch (ClosedChannelException e) {
+                    e.printStackTrace();
+                }
+            });
+            selector.wakeup();*/
+        }
+
+        @Override
+        public void run() {
+            while(true) {
+                try {
+                   //设置过期时间
+                    selector.select(10);
+                    Runnable poll = queue.poll();
+                    if(poll != null){
+                        poll.run();
+                    }
+                    Iterator<SelectionKey> iterator = selector.selectedKeys().iterator();
+                    while (iterator.hasNext()) {
+                        SelectionKey key = iterator.next();
+                        iterator.remove();
+                        if(key.isReadable()) {
+                            SocketChannel sc = (SocketChannel) key.channel();
+                            ByteBuffer buffer = ByteBuffer.allocate(16);
+                            log.debug("开始读取数据.......");
+                            sc.read(buffer);
+                            buffer.flip();
+                            debugAll(buffer);
+                        }
+                    }
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
+}
+```
+
+1. 可能出现的问题
+   1. 使用两个线程，可能会因为在不一样的线程中出现两个线程相互影响，导致读取不到数据
+   2. 出现的原因
+      1. 在selector遍历select（）的时候，worker的任务并没有注册进去，导致一直将线程阻塞，然后那个注册的方法也一直不能执行
+   3. 解决方式
+      1. 增加一个队列，在队列中添加任务，然后再worker注册的方法中，将SockerChannel的注册进selector的方法放入到队列中，然后在selector遍历需要执行的任务的时候，执行队列中的方法
+
+##### 线程数的选择
+
+```java
+//获取核心线程数
+Runtime.getRuntime().availableProcessors()
+```
+
+1. 问题
+   1. Runtime.getRuntime().availableProcessors()如果工作在docker容器下，因为容器不是物理隔离的，会拿到物理cpu个数，不是容器申请的个数
+   2. 这个问题直到jdk10才修复，使用jvm参数UserContainerSupport配置，默认开启
+
+## NIO vs BIO
+
+### stream vs channel
+
+- stream不会自动缓冲数据，channel会利用系统提供的发送缓冲区，接收缓冲区(更为底层)
+- stream仅支持阻塞API，channel同时支持阻塞、非阻塞API，网络channel可配置selector实现多路复用
+- 二者均为全双工，即读写可以同时进行
+
+### IO模型
+
+#### 同步阻塞、同步非阻塞、多路复用、异步阻塞（没有这个情况）、异步非阻塞
+
+当调用一次channel.read或stream.read后，会切换至操作系统内核态来完成真正数据读取，而读取又分为两个阶段，分别为：
+
+- 等待数据阶段
+- 复制数据阶段
+
+
+
+- 阻塞IO:用户线程发起一次read，会将用户空间切换到内核空间，网络上可能没有数据读取，这个时候read就会是阻塞状态，用户线程被阻塞（同步）
+- 非阻塞IO:用户调用一次read方法，如果没有读到数据会继续进行一次读操作，一直在轮询，看有没有数据，有数据之后，就会做复制数据的操作，这个时候还是会阻塞线程（只是等待数据阶段是非阻塞的）（同步）
+- 多路复用:首先调用select方法，select是一个阻塞的方法，在复制数据的阶段使用read方法，也是阻塞的方法。（同步）
+
+```
+阻塞io和多路复用的区别
+阻塞io一次只能处理一件事
+多路复用可以在同一时间处理多个不同事件
+```
+
+- 信号驱动:
+- 异步IO:通知内核系统进行读数操作，然后另外一个线程返回真正的结果，关键的实现是回调方法(异步)
+- 同步:现成自己去获取结果(一个线程)
+- 异步:线程自己不去获取结果，而是由其他线程送结果(至少两个线程)
+
+参考书籍:UNIX网络编程 卷一
+
+#### 零拷贝
+
+##### 内部工作流程
+
+1. java本身并不具备IO读写能力，因此read方法调用后，要从java程序的用户态切换到内核态，去调用操作系统(Kernel)能力，并将数据读入内核缓冲区，这期间用户线程阻塞，操作系统使用DMA(Direct Menory Access)来实现文件读，期间也不会使用cpu
+   1. DMA也可以理解为硬件单元，用来解放cpu完成文件IO
+2. 从内核态切换回用户态，将数据从内个缓冲区读入用户缓冲区(即Byte[] buf)，这期间cpu会参与拷贝，无法利用DMA
+3. 调用writer方法，这时将数据从用户缓冲区(byte[] buf)写入socket缓冲区，cpu参与拷贝
+4. 接下来要从网卡写数据，这项能力java又不具备，因此又得从用户态切换至内核态，调用操作系统的写能力，使用DMA将SOCket缓冲区的数据写入网卡，不会使用cpu
+
+中间的环节较多，jaba的IO实际不是物理设备级别的读写，而是缓存的复制，底层的真正读写是操作系统来完成的
+
+- 用户态与内核态的切换发生了3次，这个操作比较重量级
+- 数据拷贝共4次
+
+##### NIO优化
+
+通过DirectByteBuf
+
+- ByteBuffer.allocate(10) heapByteBuffer:使用的还是java内存
+- ByteBuffer.allocateDirect(10) DirectBytebuffer :使用的是操作系统内存
+
+大部分步骤与优化前相同，唯一一点：java可以使用DirectByteuffer讲堆外内存映射到jvm内存中来直接访问使用
+
+- 这一块内存不受JVM垃圾回收的影响，因此内存地址固定，有助于IO读写
+- java中的DirectByteBuffer对象仅维护了此内存的虚引用，内存回收分成两步
+  - DirectByteBuf对象呗垃圾回收，将虚引用家督引用队列
+  - 通过专门线程访问引用队列，根据虚引用加入引用队列
+- 减少了一个数据拷贝，用户态与内核态的切换次数没有减少
+
+:exclamation:进一步优化(底层采用linux2.1后提供的sendfile方法)，java中对应着两个channel调用transferto/transferFrom方法拷贝数据
+
+1. java调用transferTo方法后，要从java程序的用户态切换至内核态，使用DMA将数据读入内核缓冲区，不会使用cpu
+2. 将数据从内核缓冲区传输到socket缓冲区，cpu会参与拷贝
+3. 最后使用DMA将socket缓冲区的数据写入网卡，不会使用cpu
+
+- 只使用了一次用户态与内核态的切换
+- 数据拷贝了3次
+
+:exclamation:进一步优化
+
+- java调用transferTo方法后，要从java程序到用户态切换至内核态，使用DMA将数据读入内核缓冲区，不会使用cpu
+- 只会将一些offset和length信息拷贝到socket缓冲区，几乎没有消耗
+- 使用DMA将内核缓冲区的数据写入网卡，不会使用cpu
+
+整个过程仅只发生了一次用户态与内核态的切换，数据拷贝了2次，所谓的【零拷贝】,并不是真正拷贝，而是不会拷贝重复数据到jvm中，零拷贝的优点
+
+- 更少的用户态与内核态的切换
+- 不利用cpu计算，减少cpu缓存伪共享
+- 零拷贝上个小文件传输
+
+### AIO
+
+AIO用来解决数据复制阶段的阻塞问题
+
+- 同步意味着，在进行读写操作时，现成要等待结果，还是相当于闲置
+- 异步意味着，在进行读写操作时，线程不必等待结果，而是将来由操作系统来通过调用方式由另外的线程来获取结果
+- 异步模型需要底层操作系统(Kernel)提供支持
+  - windows系统通过IOCP实现真正的异步IO
+  - Linux系统异步IO在2.6版本引入，但其底层实现还是多路复用模拟了异步IO，性能没有优势
+
+视频进度:https://www.bilibili.com/video/BV1py4y1E7oA/?p=53&spm_id_from=pageDriver&vd_source=000766059912952028e3af1ddb9f2463
 
 # Netty入门学习
 
