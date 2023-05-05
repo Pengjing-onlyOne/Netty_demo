@@ -11,6 +11,7 @@ import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.nioDemo.bytebufferDemo.ByteBufferUtil.debugAll;
 
@@ -29,8 +30,15 @@ public class MultiThreadServer {
         Selector boss = Selector.open();
 
         ssc.register(boss, SelectionKey.OP_ACCEPT,null);
-        Worker worker = new Worker("worker-01");
-        worker.regest();
+//        Worker worker = new Worker("worker-01");
+        //使用多个worker
+        Worker[] workers = new Worker[Runtime.getRuntime().availableProcessors()];
+        log.debug("核心线程数为:{}",Runtime.getRuntime().availableProcessors());
+        for (int i = 0; i < workers.length; i++) {
+            workers[i] = new Worker("worker-"+i);
+        }
+        AtomicInteger index = new AtomicInteger();
+//        worker.regest();
         while(true){
             boss.select();
             Iterator<SelectionKey> iterator = boss.selectedKeys().iterator();
@@ -43,7 +51,10 @@ public class MultiThreadServer {
                     SocketChannel sc = ssc_1.accept();
                     sc.configureBlocking(false);
                     log.debug("connected........{}",sc.getRemoteAddress());
-                    sc.register(worker.selector,SelectionKey.OP_READ,null);
+//                    sc.register(worker.selector,SelectionKey.OP_READ,null);
+//                    worker.regest(sc);
+                    //round robin 轮询
+                    workers[index.getAndIncrement() % workers.length].regest(sc);
                 }
             }
         }
@@ -61,7 +72,7 @@ public class MultiThreadServer {
             this.name = name;
         }
 
-        public void regest() throws IOException {
+        public void regest(SocketChannel sc) throws IOException {
             if(!start) {
                 selector = Selector.open();
                 thread = new Thread(this, name);
@@ -74,8 +85,9 @@ public class MultiThreadServer {
                 } catch (ClosedChannelException e) {
                     e.printStackTrace();
                 }
-            });
-            selector.wakeup();*/
+            });*/
+            selector.wakeup();
+            sc.register(selector,SelectionKey.OP_READ,null);
         }
 
         @Override
@@ -83,10 +95,10 @@ public class MultiThreadServer {
             while(true) {
                 try {
                     selector.select(10);
-                    Runnable poll = queue.poll();
+                   /* Runnable poll = queue.poll();
                     if(poll != null){
                         poll.run();
-                    }
+                    }*/
                     Iterator<SelectionKey> iterator = selector.selectedKeys().iterator();
                     while (iterator.hasNext()) {
                         SelectionKey key = iterator.next();
