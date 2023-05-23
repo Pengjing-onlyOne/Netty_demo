@@ -6,7 +6,7 @@ non-blocking io 非阻塞IO
 
 ## Channel&Buffer
 
-channel有一点雷速与stream，它就是读写数据的双向通道，可以从channel将数据读入buffer，也可以将buffer的数据写入channel，而之前的stream要么是输入，要么输出，channel比stream更为底层
+channel有一点类似与stream，它就是读写数据的双向通道，可以从channel将数据读入buffer，也可以将buffer的数据写入channel，而之前的stream要么是输入，要么输出，channel比stream更为底层
 
 1. 常见的channel：
    1. FileChannel:文件的传输通道
@@ -1437,7 +1437,7 @@ Runtime.getRuntime().availableProcessors()
 3. 调用writer方法，这时将数据从用户缓冲区(byte[] buf)写入socket缓冲区，cpu参与拷贝
 4. 接下来要从网卡写数据，这项能力java又不具备，因此又得从用户态切换至内核态，调用操作系统的写能力，使用DMA将SOCket缓冲区的数据写入网卡，不会使用cpu
 
-中间的环节较多，jaba的IO实际不是物理设备级别的读写，而是缓存的复制，底层的真正读写是操作系统来完成的
+中间的环节较多，java的IO实际不是物理设备级别的读写，而是缓存的复制，底层的真正读写是操作系统来完成的
 
 - 用户态与内核态的切换发生了3次，这个操作比较重量级
 - 数据拷贝共4次
@@ -1492,7 +1492,91 @@ AIO用来解决数据复制阶段的阻塞问题
 
 # Netty入门学习
 
-# Netty进阶学习
+## Hollw World入门
+
+#### Hello World代码
+
+```java
+//服务器端
+public class HelloServer {
+    public static void main(String[] args) {
+        //1.启动器，负责组装netty组件，启动服务器
+        new ServerBootstrap()
+                //2.BossEventLoop,WorkerEventLoop(包含线程和选择器)
+                .group(new NioEventLoopGroup())
+                //3.选择服务器的serverSocketChannel实现
+                //oioserverSocketChannel是阻塞的io实现
+                .channel(NioServerSocketChannel.class)
+                //4.boss，负责处理连接，worker负责处理读写，
+                //决定将来能做什么事（能执行哪些操作（handle））
+                .childHandler(
+                        //5.代表和客户端进行数据读写的通道
+                        new ChannelInitializer<NioSocketChannel>() {
+                    //6.初始化器，负责添加别的处理器
+                    @Override
+                    protected void initChannel(NioSocketChannel nioSocketChannel) throws Exception {
+                        //7.添加具体的handle
+                        nioSocketChannel.pipeline().addLast(new StringDecoder());//将传来的ByteBuffer转化为字符串
+                        nioSocketChannel.pipeline().addLast(new ChannelInboundHandlerAdapter(){//自定义的业务处理
+                            @Override
+                            public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+//                                super.channelRead(ctx, msg);
+                                //打印上一步转换好的字符串
+                                System.out.println(msg);
+                            }
+                        });
+                    }
+                }).bind(8080);//绑定的监听端口
+    }
+}
+
+//客户端
+public class ServerClient {
+    public static void main(String[] args) throws InterruptedException {
+        //1.启动类
+        new Bootstrap()
+                //2.添加EvenLoop
+                .group(new NioEventLoopGroup())
+                //3.添加选择客户端，channel实现
+                .channel(NioSocketChannel.class)
+                //4.添加处理器，初始化处理器
+                .handler(new ChannelInitializer<NioSocketChannel>() {
+                    @Override
+                    protected void initChannel(NioSocketChannel nioSocketChannel) throws Exception {
+                        //将字符串转为bytebuf
+                        nioSocketChannel.pipeline().addLast(new StringEncoder());
+                    }
+                })
+                //连接到服务器
+                .connect(new InetSocketAddress("127.0.0.1",8080))
+                .sync().channel().writeAndFlush("hello world");
+
+    }
+}
+```
+
+#### Hello World执行顺序
+
+1. 启动服务器的==**ServerBootstrap**==
+2. 组装服务器的==**group**==
+3. 选择服务器的==**serverSocketChannel**==实现
+4. 服务器的==**(childHandle)**==负责连接,使用的对象都是
+5. 服务器创建==**(ChannelInitializer)**==初始化(和客户端进行数据读写通道)==**(NioSocketChannel)**==
+6. 绑定监听端口==**bind**==
+7. 客户端启动器创建==**Bootstrap**==
+8. 客户端组装==**group添加EventLoop**==
+9. 选择客户端的==**channel**==实现
+10. 客户端添加处理器==**(ChannelInitializer)**==
+11. 连接服务器==**(connect)**==
+12. 客户端连接服务器时==**(调用初始化通道和服务器的初始化通道)**==
+13. 客户端使用==**sync()**==阻塞方法,直到连接建立,后接连接对象
+14. 客户端发送数据==**writeAndFlush**==
+15. 在客户端的初始化通道中,将数据转化为byteBuf
+16. 服务器中由某个==**EvenLoop处理read事件,接收ByteBuf**==
+17. 在服务器的初始化通道中,将byteBuf转化为字符串
+18. 服务器中执行自定义的方法,==**处理需要处理的逻辑**==
+
+视频进度:https://www.bilibili.com/video/BV1py4y1E7oA?p=56&spm_id_from=pageDriver&vd_source=000766059912952028e3af1ddb9f2463
 
 # Netty常见参数学习以及优化
 
