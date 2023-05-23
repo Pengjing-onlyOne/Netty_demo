@@ -1572,11 +1572,50 @@ public class ServerClient {
 13. 客户端使用==**sync()**==阻塞方法,直到连接建立,后接连接对象
 14. 客户端发送数据==**writeAndFlush**==
 15. 在客户端的初始化通道中,将数据转化为byteBuf
-16. 服务器中由某个==**EvenLoop处理read事件,接收ByteBuf**==
+16. 服务器中由某个==**EventLoop处理read事件,接收ByteBuf**==
 17. 在服务器的初始化通道中,将byteBuf转化为字符串
 18. 服务器中执行自定义的方法,==**处理需要处理的逻辑**==
 
-视频进度:https://www.bilibili.com/video/BV1py4y1E7oA?p=56&spm_id_from=pageDriver&vd_source=000766059912952028e3af1ddb9f2463
+:bulb:提示
+
+- 把channel理解为数据的通道
+- 把msg理解为流动的数据,最开始输入的时ByteBuf,但是经过==**pipeline(流水线)**==加工,会变成其他类型对象,最后输出又变成ByteBuf
+- 把handle理解为数据的处理工序
+  - 工序有多道,合在一起时pipeline,==**pipeline负责发布事件(读,读取完成.....)**==传播给每个handle,==**handle对自己感兴趣的事件进行处理(重写了相对应事件处理方法)**==
+  - handle分==**Inbound(入站)**==和==**OutBound(出站)**==
+- 把Eventloop理解为处理数据的工人
+  - 工人可以管理多个channel的io操作,并且一旦工人负责了某个channel,就要负责到底(绑定,处理完之后,后续如果还过来,还是同一个工人处理)
+  - 工人既可以执行io操作,也可以进行任务处理,每个工人有任务队列,队列里可以堆放多个channel的待处理任务,任务分为普通任务,定时任务
+  - 工人按照pipeline顺序,依次按照handle的规划(代码)处理数据,可以为每道工序制定不同的工人
+
+#### 组件
+
+##### Eventloop
+
+EventLoop本质是一个单线程执行器(同时维护一个Selector),里面run方法处理Channel上源源不断的io事件
+
+它的继承关系比较复杂
+
+- 一条线是集成自j.u.c.ScheduledExcecutorService因此包含了线程池所有方法
+- 另一条线是继承自netty自己的OrderdEventExecutor
+  - 提供了boolean inEventLoop(Thread thread)方法判断一个线程是否属于此EventLoop
+  - 提供了parent方法来看看自己属于哪个EventLoopGroup
+
+EventLoopGroup是一组EventLoop,Channel一般会调用EventLoopGroup的register方法来绑定其中一个EventLoop,后续这个Channel上的io事件由此EventLoop来处理(保证了io事件处理时的线程安全)
+
+- 继承自netty自己的EventLoopGroup
+  - 实现了Iterable接口提供遍历EventLoop的能力
+  - 另有next方法获取集合中下一个EventLoop
+
+##### Channel
+
+##### Future&promise
+
+##### handle&Pipeline
+
+##### ByteBuf
+
+视频进度:https://www.bilibili.com/video/BV1py4y1E7oA?p=59&spm_id_from=pageDriver&vd_source=000766059912952028e3af1ddb9f2463
 
 # Netty常见参数学习以及优化
 
