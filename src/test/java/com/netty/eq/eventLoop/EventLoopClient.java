@@ -25,6 +25,6 @@ public class EventLoopClient {
                 .sync()
                 .channel();
 
-        System.in.read();
+        System.out.println("");
     }
 }

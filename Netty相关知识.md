@@ -1588,9 +1588,9 @@ public class ServerClient {
   - 工人既可以执行io操作,也可以进行任务处理,每个工人有任务队列,队列里可以堆放多个channel的待处理任务,任务分为普通任务,定时任务
   - 工人按照pipeline顺序,依次按照handle的规划(代码)处理数据,可以为每道工序制定不同的工人
 
-#### 组件
+### 组件
 
-##### Eventloop
+#### Eventloop
 
 EventLoop本质是一个单线程执行器(同时维护一个Selector),里面run方法处理Channel上源源不断的io事件
 
@@ -1607,13 +1607,116 @@ EventLoopGroup是一组EventLoop,Channel一般会调用EventLoopGroup的register
   - 实现了Iterable接口提供遍历EventLoop的能力
   - 另有next方法获取集合中下一个EventLoop
 
-##### Channel
+:bulb:细节
 
-##### Future&promise
+1. NIOEventLoop的默认线程数为服务器的线程数*2
+2. 在处理多线程任务的时候,需要将断点方式从ALL修改为Thread
+3. 如果在处理的时间需要耗费的时间很长,可以另外添加一个Group,用于处理耗时很长的事件,一般使用的是默认的group.
 
-##### handle&Pipeline
+```java
+//服务端代码
+@Slf4j
+public class EventLoopServer {
+    public static void main(String[] args) {
+        //todo 进一步细化,在NioEvevtLoop需要处理很大的操作的时候,可以给他指定一个group来操作
+        DefaultEventLoopGroup group = new DefaultEventLoopGroup(2);
+        new ServerBootstrap()
+                //两个EventLoop分别是 案例中的boss和worker
+                //第一个作用是负责accept的连接事件
+                //第二个作用是负责数据的读写事件
+                .group(new NioEventLoopGroup(),new NioEventLoopGroup(2))
+                .channel(NioServerSocketChannel.class)
+                .childHandler(new ChannelInitializer<NioSocketChannel>() {
+                    @Override
+                    protected void initChannel(NioSocketChannel nioSocketChannel) throws Exception {
+                        nioSocketChannel.pipeline().addLast(new ChannelInboundHandlerAdapter(){
+                            @Override
+                            public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+                                ByteBuf buffer = (ByteBuf) msg;
+                                log.debug(buffer.toString(Charset.forName(StandardCharsets.UTF_8.name())));
+                                ctx.fireChannelRead(msg);
+                            }
+                        }).addLast(group,"Handle_2",new ChannelInboundHandlerAdapter(){
+                            @Override
+                            public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+                                ByteBuf buffer = (ByteBuf) msg;
+                                log.debug(buffer.toString(Charset.forName(StandardCharsets.UTF_8.name())));
+                            }
+                        });
+                    }
+                }).bind(8080);
+    }
+}
 
-##### ByteBuf
+//客户端代码:
+public class EventLoopClient {
+    public static void main(String[] args) throws InterruptedException, IOException {
+        Channel channel = new Bootstrap()
+                .group(new NioEventLoopGroup())
+                .channel(NioSocketChannel.class)
+                .handler(new ChannelInitializer<NioSocketChannel>() {
+                    @Override
+                    protected void initChannel(NioSocketChannel nioSocketChannel) throws Exception {
+                        nioSocketChannel.pipeline().addLast(new StringEncoder());
+                    }
+                })
+                .connect(new InetSocketAddress("127.0.0.1", 8080))
+                .sync()
+                .channel();
+
+        System.out.println("");
+    }
+}
+```
+
+:bulb:handle执行中如何换人
+
+关键代码io.netty.channel.ChannelHandlerContext#fireChannelRead
+
+```java
+static void invokeChannelRead(final AbstractChannelHandlerContext next, Object msg) {
+        final Object m = next.pipeline.touch(ObjectUtil.checkNotNull(msg, "msg"), next);
+    //下一个handle的事件循环是否与当前事件循环是同一个线程
+        EventExecutor executor = next.executor();//返回下一个handle的eventLoop
+    //是 ,直接调用
+        if (executor.inEventLoop()) {
+            next.invokeChannelRead(m);
+        } else {
+            //不是,将要执行的代码作为任务提交给下一个事件循环处理(换人)
+            executor.execute(new Runnable() {//下一个handle线程
+                @Override
+                public void run() {
+                    next.invokeChannelRead(m);
+                }
+            });
+        }
+    }
+```
+
+:bulb:总结:
+
+- 如果两个handle绑定的是同一个线程,那么就直接调用
+- 如果两个handle绑定的不是同一个线程,把要调用的代码封装为一个任务对象,由下一个handle的线程来调用
+
+#### Channel
+
+##### channel的主要作用
+
+- close()可以用来关闭channel
+- closeFuture()用来处理channel的关闭
+  - sync方法作用是同步等待channel关闭
+  - addListener方法是异步等待channel关闭
+- peline()方法添加处理器
+- write()方法将数据写入
+- writeAndFlush()方法将数据写入并刷出
+
+##### ChannelFuture 
+
+#### Future&promise
+
+#### handle&Pipeline
+
+#### ByteBuf
 
 视频进度:https://www.bilibili.com/video/BV1py4y1E7oA?p=59&spm_id_from=pageDriver&vd_source=000766059912952028e3af1ddb9f2463
 
