@@ -1488,8 +1488,6 @@ AIO用来解决数据复制阶段的阻塞问题
   - windows系统通过IOCP实现真正的异步IO
   - Linux系统异步IO在2.6版本引入，但其底层实现还是多路复用模拟了异步IO，性能没有优势
 
-视频进度:https://www.bilibili.com/video/BV1py4y1E7oA/?p=53&spm_id_from=pageDriver&vd_source=000766059912952028e3af1ddb9f2463
-
 # Netty入门学习
 
 ## Hollw World入门
@@ -1712,14 +1710,131 @@ static void invokeChannelRead(final AbstractChannelHandlerContext next, Object m
 
 ##### ChannelFuture 
 
+```java
+@Slf4j
+public class ChannelClient {
+    public static void main(String[] args) throws InterruptedException {
+        //2 带有Future Promise的类型都是和异步方法配套使用,用来处理结果
+        ChannelFuture channelFuture = new Bootstrap()
+                .group(new NioEventLoopGroup())
+                .channel(NioSocketChannel.class)
+                .handler(new ChannelInitializer<NioSocketChannel>() {
+                    @Override
+                    protected void initChannel(NioSocketChannel ch) throws Exception {
+                        ch.pipeline().addLast(new StringEncoder());
+                    }
+                })
+                //1.连接到服务器
+                //异步非阻塞,main发起了作用,真正执行connect是nio线程
+                .connect(new InetSocketAddress("127.0.0.1", 8080));
+
+        //2.1使用sync()方法,同步处理结果
+        //阻塞当前线程,直到nio线程连接建立完毕
+        /*channelFuture.sync();
+        Channel channel = channelFuture.channel();
+        log.debug("{}",channel);
+        channel.writeAndFlush("1111");*/
+
+        //2.2使用addListener方法,异步处理结果
+        channelFuture.addListener(new ChannelFutureListener() {
+            //nio在线程建立好之后,会调用operationComplate
+            @Override
+            public void operationComplete(ChannelFuture channelFuture) throws Exception {
+                Channel channel = channelFuture.channel();
+                log.debug("{}",channel);
+                channel.writeAndFlush("我是方法2");
+            }
+        });
+    }
+}
+```
+
+:bulb:重点
+
+- 一般带有Future Promise的类型都是和异步方法配套使用,用来处理结果
+
+- 连接服务器的步骤，不应该是main线程发起连接，而是应该Nio的线程发起连接
+- 如果没有使用sync，就不会同步等待连接结果，会一直运行下去，导致连接使用的是main线程，从而出现接收不到数据的结果
+- 在没有sync方法的情况下，可以使用addListener来异步处理结果，在addListener连接之后，使用operationComplete方法来运行连接建立完之后运行的方法
+
+```java
+@Slf4j
+public class ChannelFutureClient {
+    public static void main(String[] args) throws InterruptedException {
+        NioEventLoopGroup group = new NioEventLoopGroup();
+        Channel channel = new Bootstrap().group(group).channel(NioSocketChannel.class).handler(new ChannelInitializer<NioSocketChannel>() {
+            @Override
+            protected void initChannel(NioSocketChannel nioSocketChannel) throws Exception {
+                //netty自带的日志记录器
+                nioSocketChannel.pipeline().addLast(new LoggingHandler());
+                nioSocketChannel.pipeline().addLast(new StringEncoder());
+            }
+        }).connect(new InetSocketAddress("127.0.0.1", 8080)).channel();
+
+        //创建一个新的线程用于发送消息
+        new Thread(() -> {
+            Scanner scanner = new Scanner(System.in);
+            while (true) {
+                String msg = scanner.nextLine();
+                if ("q".equals(msg)) {
+                    //在用户输入q之后,退出聊天
+                    channel.close();
+//  q_1.1              log.debug("后续收尾的工作......");
+                    break;
+                }
+                channel.writeAndFlush(msg);
+            }
+        }, "input").start();
+// q_1.1       log.debug("后续收尾的工作......");
+
+        //q_1.2 channel.closeFuture().sync();是一个同步的阻塞方法,会将main线程阻塞住,在执行完channel的关闭动作之后,开始执行后面的代码,可以实现后续收尾工作
+       /* ChannelFuture future = channel.closeFuture().sync();
+        log.debug("后续收尾的工作......");*/
+
+        //q_1.3 channel.closeFuture().addListener使用的是异步的操作,收尾的工作是在nio的线程中完成,可以保证他的执行顺序
+        channel.closeFuture().addListener(new ChannelFutureListener() {
+            @Override
+            public void operationComplete(ChannelFuture channelFuture) throws Exception {
+                log.debug("后续收尾的工作......");
+                group.shutdownGracefully();
+                channel.writeAndFlush("bbbbb");
+            }
+        });
+
+    }
+}
+```
+
+:diamonds:注释
+
+q_1:如果需要再channel退出后做一些收尾工作,应该怎么操作
+ * 项目中有q_1.1的注释,表示的是将后续收尾的工作都放在这里并不合适,通过日志可以知道他们不是在一个线程中的,所以无法保证他们执行的顺序
+ * 应该使用的是channel自带的方法来进行后续收尾
+ * q_1.2 channel.closeFuture().sync();是一个同步的阻塞方法,会将main线程阻塞住,在执行完channel的关闭动作之后,开始执行后面的代码,可以实现后续收尾工作
+ * q_1.3 channel.closeFuture().addListener使用的是异步的操作,收尾的工作是在nio的线程中完成,可以保证他的执行顺序
+
+q_2:为什么退出后,项目并没有退出,依旧在运行?应该怎么操作让它随用户的退出一起关闭?
+
+ * 需要关闭的还有NioEventLoopGroup,将这个资源关闭之后,系统就会停止运行
+ *  使用group.shutdownGracefully();方法,表示优雅关闭,注释为在关闭期间不接受任务,如果接受了任务就会将任务执行完,并重新计算是时间,2s内接受到任务就重新计时15s为超时时间
+
+##### 为什么使用异步
+
+:bulb:要点
+
+- 单线程没法异步提高效率，必须配合多线程，多核cpu才能发挥异步的优势
+- 异步并没有缩短响应时间，反而有所增加
+- 合理进行任务拆分，也是利用异步的关键
+
 #### Future&promise
 
 #### handle&Pipeline
 
 #### ByteBuf
 
-视频进度:https://www.bilibili.com/video/BV1py4y1E7oA?p=59&spm_id_from=pageDriver&vd_source=000766059912952028e3af1ddb9f2463
+视频进度:https://www.bilibili.com/video/BV1py4y1E7oA?p=70&spm_id_from=pageDriver&vd_source=000766059912952028e3af1ddb9f2463
 
 # Netty常见参数学习以及优化
 
 # Netty源码分析
+
