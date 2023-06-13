@@ -1,4 +1,4 @@
-# NIO基础
+#  NIO基础
 
 non-blocking io 非阻塞IO
 
@@ -1828,11 +1828,43 @@ q_2:为什么退出后,项目并没有退出,依旧在运行?应该怎么操作�
 
 #### Future&promise
 
+- 异步处理时，经常用到两个接口
+
+首先需要说明netty中的future与jdk中的future同名，但是两个接口，netty的future继承自jdk的future，而promise又对future进行了拓展
+
+- jdkFuture只能同步等待任务结束（或成功、或失败）才能得到结果
+
+- netty Future可以同步等待任务结束得到结果，也可以异步方式得到结果，但都是要等任务结束
+
+- netty Promise不仅有netty Future的功能，而且脱离了任务独立存在，只作为两个线程间传递结果的容器
+
+- |  功能/名称   |            jdk Future            |                         netty Future                         |   Promise    |
+  | :----------: | :------------------------------: | :----------------------------------------------------------: | :----------: |
+  |    cancel    |             取消任务             |                              -                               |      -       |
+  |  isCanceled  |           任务是否取消           |                              -                               |      -       |
+  |    isDone    | 任务是否完成，不能够区分成功失败 |                              -                               |      -       |
+  |     get      |      获取任务结果，阻塞等待      |                              -                               |      -       |
+  |    getNow    |                -                 |        获取任务结果，非阻塞，还未产生结果时，返回null        |      -       |
+  |    await     |                -                 | 等待任务结束，如果任务失败，不会抛异常，而是通过isSuccess判断 |      -       |
+  |     sync     |                -                 |             等待任务结束，如果任务失败，抛出异常             |      -       |
+  |  isSuccess   |                -                 |                       判断任务是否成功                       |      -       |
+  |    cause     |                -                 |         获取失败信息，非阻塞，如果没有失败，返回null         |      -       |
+  | addLinstener |                -                 |                    添加回调，异步接收结果                    |      -       |
+  |  setSuccess  |                -                 |                              -                               | 设置成功结果 |
+  |  setFailure  |                -                 |                              -                               | 设置失败结果 |
+
 #### handle&Pipeline
+
+ChannelHandler用来处理Channel上的各种事件，分为入站、出站两种，所有ChannelHandler被连成一串，就是Pipeline
+
+- 入站处理器通常是ChannelInboundHandlerAdapter的子类，主要用来读取客户端数据，写回结果
+- 出站处理器通常是ChannelOutboundHandlerAdapter的子类，主要对写回结果进行加工
+
+相当于每个Channel是一个产品的加工车间，Pipeline是车间中的流水线，ChannelHandler就是流水线上的各道工序，而后面要讲的ByteBuf是原材料，经过很多工序的加工路线经过一道道入站工序，在经过一道道出站工序最终变成产品
 
 #### ByteBuf
 
-视频进度:https://www.bilibili.com/video/BV1py4y1E7oA?p=70&spm_id_from=pageDriver&vd_source=000766059912952028e3af1ddb9f2463
+视频进度:https://www.bilibili.com/video/BV1py4y1E7oA?p=77&vd_source=000766059912952028e3af1ddb9f2463
 
 # Netty常见参数学习以及优化
 

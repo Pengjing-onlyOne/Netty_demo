@@ -66,7 +66,6 @@ public class ChannelFutureClient {
             public void operationComplete(ChannelFuture channelFuture) throws Exception {
                 log.debug("后续收尾的工作......");
                 group.shutdownGracefully();
-                channel.writeAndFlush("bbbbb");
             }
         });
 
