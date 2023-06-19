@@ -29,6 +29,7 @@ public class TestHandle {
                         //获取
                         ChannelPipeline pipeline = nioSocketChannel.pipeline();
                         pipeline.addLast(new StringDecoder());
+                        //添加处理器head->h1->h2->h3->h4->h5->h6->tail
                         pipeline.addLast("h1",new ChannelInboundHandlerAdapter(){
                             @Override
                             public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
@@ -45,13 +46,26 @@ public class TestHandle {
                                 super.channelRead(ctx, student);
                             }
                         });
+                        pipeline.addLast("h7",new ChannelOutboundHandlerAdapter(){
+                            @Override
+                            public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
+                                log.debug("7");
+                                super.write(ctx, msg, promise);
+                            }
+                        });
                         pipeline.addLast("h3",new ChannelInboundHandlerAdapter(){
                             @Override
                             public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
                                 log.debug("3,结果是{},class:{}",msg,msg.getClass());
                                 //将处理权交给下一个入站处理器,如果后续没有可以不加channelRead
 //                                super.channelRead(ctx, msg);
-                                nioSocketChannel.writeAndFlush(ctx.alloc().buffer().writeBytes("server.....".getBytes()));
+//                                nioSocketChannel.writeAndFlush(ctx.alloc().buffer().writeBytes("server.....".getBytes()));
+                                /**
+                                 * 使用ctx的writeAndFlush方法会导致后面的出站操作不能被读取的到
+                                 * 会在有writeAndFlush方法执行后向前执行,判断前面的方法时候存在出站的head
+                                 * 添加了h7之后就会因为h7在h3的前面,然后又是出站的head,就会使他运行
+                                 */
+                                ctx.writeAndFlush(ctx.alloc().buffer().writeBytes("server.....".getBytes()));
                             }
                         });
                         pipeline.addLast("h4",new ChannelOutboundHandlerAdapter(){

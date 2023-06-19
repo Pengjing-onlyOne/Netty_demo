@@ -1862,9 +1862,251 @@ ChannelHandler用来处理Channel上的各种事件，分为入站、出站两�
 
 相当于每个Channel是一个产品的加工车间，Pipeline是车间中的流水线，ChannelHandler就是流水线上的各道工序，而后面要讲的ByteBuf是原材料，经过很多工序的加工路线经过一道道入站工序，在经过一道道出站工序最终变成产品
 
+服务端pipeline出发的原始流程，图中数字代表了处理步骤的先后次序
+
+head--->ln_1--->ln_2--->ln_3--->out_4--->out_5--->out_6--->tail
+
+- 入站的执行顺序为lin_1到ln_2到ln_3
+
+- 在遇到tail.writeAndFlush()方法之后就会执行出站的head
+
+- 所以在ln_1到ln_3这个入站的顺序中如果调用了tail.writeAndFlush()方法，就会使pipeline从执行tail.writeAndFlush()方法的最开始向后执行，判断那个是出站操作，并执行相关head
+
+  ```java
+  @Slf4j
+  public class TestHandle {
+      public static void main(String[] args) throws InterruptedException {
+          new ServerBootstrap()
+                  .group(new NioEventLoopGroup())
+                  .channel(NioServerSocketChannel.class)
+                  .childHandler(new ChannelInitializer<NioSocketChannel>() {
+                      @Override
+                      protected void initChannel(NioSocketChannel nioSocketChannel) throws Exception {
+                          //获取
+                          ChannelPipeline pipeline = nioSocketChannel.pipeline();
+                          pipeline.addLast(new StringDecoder());
+                          //添加处理器head->h1->h2->h3->h4->h5->h6->tail
+                          pipeline.addLast("h1",new ChannelInboundHandlerAdapter(){
+                              @Override
+                              public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+                                  log.debug("1,{}",msg);
+                                  String name = msg.toString();
+                                  super.channelRead(ctx, name);
+                              }
+                          });
+                          pipeline.addLast("h2",new ChannelInboundHandlerAdapter(){
+                              @Override
+                              public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+                                  log.debug("2");
+                                  Student student = new Student(msg.toString());
+                                  super.channelRead(ctx, student);
+                              }
+                          });
+                          pipeline.addLast("h7",new ChannelOutboundHandlerAdapter(){
+                              @Override
+                              public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
+                                  log.debug("7");
+                                  super.write(ctx, msg, promise);
+                              }
+                          });
+                          pipeline.addLast("h3",new ChannelInboundHandlerAdapter(){
+                              @Override
+                              public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+                                  log.debug("3,结果是{},class:{}",msg,msg.getClass());
+                                  //将处理权交给下一个入站处理器,如果后续没有可以不加channelRead
+  //                                super.channelRead(ctx, msg);
+  //                                nioSocketChannel.writeAndFlush(ctx.alloc().buffer().writeBytes("server.....".getBytes()));
+                                  /**
+                                   * 使用ctx的writeAndFlush方法会导致后面的出站操作不能被读取的到
+                                   * 会在有writeAndFlush方法执行后向前执行,判断前面的方法时候存在出站的head
+                                   * 添加了h7之后就会因为h7在h3的前面,然后又是出站的head,就会使他运行
+                                   */
+                                  ctx.writeAndFlush(ctx.alloc().buffer().writeBytes("server.....".getBytes()));
+                              }
+                          });
+                          pipeline.addLast("h4",new ChannelOutboundHandlerAdapter(){
+                              @Override
+                              public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
+                                  log.debug("4");
+                                  super.write(ctx, msg, promise);
+                              }
+                          });
+                          pipeline.addLast("h5",new ChannelOutboundHandlerAdapter(){
+                              @Override
+                              public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
+                                  log.debug("5");
+                                  super.write(ctx, msg, promise);
+                              }
+                          });
+                          pipeline.addLast("h6",new ChannelOutboundHandlerAdapter(){
+                              @Override
+                              public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
+                                  log.debug("6");
+                                  super.write(ctx, msg, promise);
+                              }
+                          });
+                      }
+                  }).bind(8080).sync().channel().read();
+      }
+  }
+  ```
+
+- ##### EmbeddedChannel（）：用于调试，不需要启动客户端和服务端
+
+  ```java
+  @Slf4j
+  public class TestEmbeddedChannel {
+      public static void main(String[] args) {
+          ChannelInboundHandlerAdapter h1 = new ChannelInboundHandlerAdapter(){
+              @Override
+              public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+                  log.debug("h1");
+                  super.channelRead(ctx, msg);
+              }
+          };
+          
+          ChannelInboundHandlerAdapter h2 = new ChannelInboundHandlerAdapter(){
+              @Override
+              public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+                  log.debug("h2");
+                  super.channelRead(ctx, msg);
+  //                ctx.writeAndFlush(msg);
+              }
+          };
+  
+          ChannelOutboundHandlerAdapter h3 = new ChannelOutboundHandlerAdapter(){
+              @Override
+              public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
+                  log.debug("h3");
+                  super.write(ctx, msg, promise);
+              }
+          };
+  
+          ChannelOutboundHandlerAdapter h4 = new ChannelOutboundHandlerAdapter(){
+              @Override
+              public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
+                  log.debug("h4");
+                  super.write(ctx, msg, promise);
+              }
+          };
+          EmbeddedChannel channel = new EmbeddedChannel(h1,h2,h3,h4);
+          //模拟入站操作
+  //        channel.writeOneInbound(ByteBufAllocator.DEFAULT.buffer().writeBytes("hello".getBytes()));
+  
+          //模拟出站操作
+          channel.writeOneOutbound(ByteBufAllocator.DEFAULT.buffer().writeBytes("hello".getBytes()));
+      }
+  
+  }
+  ```
+
 #### ByteBuf
 
-视频进度:https://www.bilibili.com/video/BV1py4y1E7oA?p=77&vd_source=000766059912952028e3af1ddb9f2463
+1. ##### 直接内存 VS 堆内存
+
+   可以使用下面的代码来创建池化基于堆的Bytebuf
+
+   ```java
+   Bytebuf buffer = ByteBufAllocator.DEFFAULT.heapBuffer(10);
+   ```
+
+   也可以使用下面的代码创建池化基于内存的ByteBuf
+
+   ```java
+   Bytebuf buffer = ByteBufAllocator.DEFFAULT.directBuffer(10);
+   ```
+
+   - 直接内存创建和销毁的代价昂贵，但读写性能高(少一次内存复制)，适合配合池化功能使用
+   - 直接内存对GC压力小，因为这部分内存不受JVM垃圾回收的管理，但也要注意及时主动释放
+
+2. ##### 池化 vs 非池化
+
+   池化的最大意义在于可以重用ByteBuf，优点有
+
+   - 没有池化，则每次都得创建新的ByteBuf实例，这个操作对直接内存代价昂贵，就算是堆内存，也会增加GC压力
+   - 有了池化，则可以重用池中ByteBuf实例，并且采用与jemalloc类似的内存分配算法提升分配效率
+   - 高并发时，池化功能更节约内存，减少内存溢出的问题
+
+3. ##### 池化功能是否开启，可以通过下面的系统环境变量来设置
+
+   ```java
+   -Dio.netty.allocator.type={unpooled|pooled}
+   //4.1以后，非Android平台默认启用池化实现，Android平台启用非池化实现
+   //4.1之前，池化功能还不成熟，默认是非池化实现
+   ```
+
+4. ##### 组成
+
+   Bytebuf由四个部分组成
+
+   - capacity：容量
+   - max capacity :最大容量
+   - read index:读取位置
+   - write index:写入位置
+   - 最大容量和容量之间为可扩容字节
+
+5. ##### 写入
+
+   |          方法签名           |         含义         |                   备注                   |
+   | :-------------------------: | :------------------: | :--------------------------------------: |
+   | writeBoolean(boolean value) |    写入boolean值     |     用一个字节01\|00表示true\|false      |
+   |    writeByte(int value)     |      写入byte值      |                                          |
+   |    writeShort(int value)    |     写入short值      |                                          |
+   |     writeInt(int value)     |      写入int值       |  Big Endian，即0x250，写入后00 00 02 50  |
+   |    writeIntLE(int value)    |      写入int值       | Little Endian,即0x250，写入后50 02 00 00 |
+   |    writeLong(long value)    |      写入long值      |                                          |
+   |    writeChar(int value)     |      写入char值      |                                          |
+   |   writeFloat(float value)   |     写入float值      |                                          |
+   |  writeDouble(double value)  |     写入double值     |                                          |
+   |   writeBytes(ByteBuf src)   | 写入netty的Bytebuf值 |                                          |
+   |   writeBytes(byte[] src)    |      写入byte[]      |                                          |
+
+   :bulb:注意
+
+   - 这些方法的未指明返回值的，其返回值都是ByteBuf，意味着可以链式调用
+   - 网络传输，默认习惯是Big Endian
+
+6. 扩容
+
+   - 扩容规则
+   - 如果写入的数据大小未超过512，则选择下一个16的整数倍，例如写入后大小为12，则扩容后capacity是16
+   - 如果写入后数据大小超过512，则选择下一个2^n,例如写入后为513，则扩容后capacity是2^10=1024(2^9=512已经不够了)
+   - 扩容不能超过max capacity，会报错
+
+7. 读取
+
+   读过的内容，就属于废弃部分，再读只能读那些尚未读取的部分
+
+   如果需要重复读取一个位置的数据，可以在read前先做个标记mark(buffer.markReaderIndex())，这时要重复读取的话，重置到标记位置rest(buffer.resetReaderIndex())
+
+8. Retain & release
+
+   由于netty中有堆外内存的ByteBuf实现，堆外内存最好是手动来释放，而不是等GC垃圾回收
+
+   - UnpooledHeapByteBuf使用的是JVM内存，只需要等GC回收内存即可
+   - UnpooledDireByteBuf使用的是直接内存，需要特殊的方法来回收内存
+   - PooledByteBuf和它的子类使用了池化机制，需要更复杂的规则来回收内存
+
+   :bulb:回收内存的源码实现，请关注下面方法的不同实现
+
+   ```java
+   protected abstract void deallocate()
+   ```
+
+   netty这里采用了引用计数的方法控制回收内存，每个ByteBuf都实现了ReferenceCounted接口
+
+   - 每个ByteBuf对象的初始化计数为1
+   - 调用release方法计数减一，如果计数为0，ByteBuf内存被回收
+   - 调用retain方法计数加1，表示调用者没有用完之前，其他handler即使调用了release也不会造成回收
+   - 当计数为0，底层内存会被回收，这时即使ByteBuf对象还在，其他方法均无法正常使用
+
+   基本规则(==**谁最后使用谁就释放**==)
+
+   视频进度:https://www.bilibili.com/video/BV1py4y1E7oA/?p=86&spm_id_from=pageDriver&vd_source=000766059912952028e3af1ddb9f2463
+
+9. xxx
+
+10. 
 
 # Netty常见参数学习以及优化
 
