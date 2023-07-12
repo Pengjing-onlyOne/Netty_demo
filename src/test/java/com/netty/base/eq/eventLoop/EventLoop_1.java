@@ -1,4 +1,4 @@
-package com.netty.eq.eventLoop;
+package com.netty.base.eq.eventLoop;
 
 import io.netty.channel.DefaultEventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;

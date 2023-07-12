@@ -1,4 +1,4 @@
-package com.netty.eq.handle;
+package com.netty.base.eq.handle;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;

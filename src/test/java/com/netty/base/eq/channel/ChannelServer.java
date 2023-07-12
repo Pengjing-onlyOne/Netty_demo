@@ -1,4 +1,4 @@
-package com.netty.eq.channel;
+package com.netty.base.eq.channel;
 
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.ChannelHandlerContext;

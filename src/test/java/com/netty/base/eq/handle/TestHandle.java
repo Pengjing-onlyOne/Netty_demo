@@ -1,4 +1,4 @@
-package com.netty.eq.handle;
+package com.netty.base.eq.handle;
 
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.ChannelHandlerContext;
@@ -65,7 +65,8 @@ public class TestHandle {
                                  * 会在有writeAndFlush方法执行后向前执行,判断前面的方法时候存在出站的head
                                  * 添加了h7之后就会因为h7在h3的前面,然后又是出站的head,就会使他运行
                                  */
-                                ctx.writeAndFlush(ctx.alloc().buffer().writeBytes("server.....".getBytes()));
+//                                ctx.writeAndFlush(ctx.alloc().buffer().writeBytes("server.....".getBytes()));
+                                ctx.writeAndFlush("server.....");
                             }
                         });
                         pipeline.addLast("h4",new ChannelOutboundHandlerAdapter(){

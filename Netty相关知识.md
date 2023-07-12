@@ -2066,20 +2066,20 @@ head--->ln_1--->ln_2--->ln_3--->out_4--->out_5--->out_6--->tail
    - 这些方法的未指明返回值的，其返回值都是ByteBuf，意味着可以链式调用
    - 网络传输，默认习惯是Big Endian
 
-6. 扩容
+6. ##### 扩容
 
    - 扩容规则
    - 如果写入的数据大小未超过512，则选择下一个16的整数倍，例如写入后大小为12，则扩容后capacity是16
    - 如果写入后数据大小超过512，则选择下一个2^n,例如写入后为513，则扩容后capacity是2^10=1024(2^9=512已经不够了)
    - 扩容不能超过max capacity，会报错
 
-7. 读取
+7. ##### 读取
 
    读过的内容，就属于废弃部分，再读只能读那些尚未读取的部分
 
    如果需要重复读取一个位置的数据，可以在read前先做个标记mark(buffer.markReaderIndex())，这时要重复读取的话，重置到标记位置rest(buffer.resetReaderIndex())
 
-8. Retain & release
+8. ##### Retain & release
 
    由于netty中有堆外内存的ByteBuf实现，堆外内存最好是手动来释放，而不是等GC垃圾回收
 
@@ -2104,9 +2104,47 @@ head--->ln_1--->ln_2--->ln_3--->out_4--->out_5--->out_6--->tail
 
    视频进度:https://www.bilibili.com/video/BV1py4y1E7oA/?p=86&spm_id_from=pageDriver&vd_source=000766059912952028e3af1ddb9f2463
 
-9. xxx
+9. ##### slice
 
-10. 
+   【零拷贝】的体现之一，对原始ByteBuf进行切片成多个ByteBuf，切片后的ByteBuf并没有发生复制，还是使用原始ByteBuf的内存,切片后的ByteBuf维护独立的read，write指针
+
+   - 切片过程中，没有发生数据复制
+   - 切片后的数据,slince容量不会在增加
+   - 如果对原始数据做了一次release(释放原有数据)，切片后的数据也不能显示
+
+10. ##### duplicate
+
+    【零拷贝】的体现之一，就好比截取原始ByteBuf所有内容，并且没有max capacity的限制，也是与原始ByteBuf使用同一块底层地址，只是读写指针是独立的
+
+11. ##### copy
+
+    会将底层的数据进行深度拷贝，因此无论读写，都与原始ByteBuf无关
+
+12. ##### compositeBuf
+
+    和slice相反，是将多个ByteBuf组合为一个ByteBuf，也需要考虑应用计数的问题
+
+    ```java
+    CompositeByteBuf bufs = ByteBufAllocator.DEFAULT.compositeBuffer();
+            bufs.addComponents(true,f1,f2);
+            log(bufs);
+    ```
+
+13. Unpooled
+    - 是一个工具类，提供了非池化的ByteBuf创建、组合、复制等操作
+    - 当包装ByteBuf个数超过一个时，底层使用了CompositeByteBuf
+
+**:bulb:ByteBuf优势**
+
+- 池化-可以重用池中ByteBuf实例，更节约内存，减少内存溢出的可能
+- 读写指针分离，不需要像ByteBuffer一样切换读写模式
+- 可以自动扩容
+- 支持链式调用，使用更加流畅
+- 很多地方体现零拷贝、例如slice、duplicate、CompositeByteBuf
+
+#### 问题双向通信
+
+https://www.bilibili.com/video/BV1py4y1E7oA/?p=90&spm_id_from=pageDriver&vd_source=000766059912952028e3af1ddb9f2463
 
 # Netty常见参数学习以及优化
 

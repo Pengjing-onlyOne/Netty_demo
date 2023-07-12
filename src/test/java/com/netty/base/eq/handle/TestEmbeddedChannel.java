@@ -1,4 +1,4 @@
-package com.netty.eq.handle;
+package com.netty.base.eq.handle;
 
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.ChannelHandlerContext;

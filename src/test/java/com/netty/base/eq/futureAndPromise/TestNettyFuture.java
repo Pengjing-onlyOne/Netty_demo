@@ -1,4 +1,4 @@
-package com.netty.eq.futureAndPromise;
+package com.netty.base.eq.futureAndPromise;
 
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.util.concurrent.Future;

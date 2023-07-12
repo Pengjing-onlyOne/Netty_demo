@@ -1,9 +1,7 @@
-package com.netty.eq;
+package com.netty.base.eq;
 
 import io.netty.bootstrap.Bootstrap;
-import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelInitializer;
-import io.netty.channel.ServerChannel;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.string.StringEncoder;

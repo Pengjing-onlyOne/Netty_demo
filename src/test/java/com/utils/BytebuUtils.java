@@ -15,8 +15,8 @@ public class BytebuUtils {
         int length = byteBuf.readableBytes();
         int row = length / 16+(length % 15 == 0 ? 0:1)+ 4;
         StringBuilder buf = new StringBuilder(row * 80 * 2)
-                .append("read index:").append(byteBuf.readerIndex())
-                .append("write index:").append(byteBuf.writerIndex())
+                .append("read index: ").append(byteBuf.readerIndex())
+                .append("write index: ").append(byteBuf.writerIndex())
                 .append("capacity:").append(byteBuf.capacity())
                 .append(NEWLINE);
         appendPrettyHexDump(buf,byteBuf);

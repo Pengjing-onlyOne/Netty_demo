@@ -1,4 +1,4 @@
-package com.netty.eq.eventLoop;
+package com.netty.base.eq.eventLoop;
 
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
