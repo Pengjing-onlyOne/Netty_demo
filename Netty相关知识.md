@@ -2144,9 +2144,163 @@ head--->ln_1--->ln_2--->ln_3--->out_4--->out_5--->out_6--->tail
 
 #### 问题双向通信
 
-https://www.bilibili.com/video/BV1py4y1E7oA/?p=90&spm_id_from=pageDriver&vd_source=000766059912952028e3af1ddb9f2463
+```java
+//服务端代码
+@Slf4j
+public class WorkServer {
+    public static void main(String[] args) throws InterruptedException {
+        new ServerBootstrap()
+                .group(new NioEventLoopGroup())
+                .channel(NioServerSocketChannel.class)
+                .childHandler(new ChannelInitializer<NioSocketChannel>() {
+                    @Override
+                    protected void initChannel(NioSocketChannel nioSocketChannel) throws Exception {
+                        //首先将数据格式化
+                        ChannelPipeline pipeline = nioSocketChannel.pipeline();
+                        pipeline.addLast(new StringDecoder());
+                        //创建出站和入站处理
+                        pipeline.addLast("l1",new ChannelInboundHandlerAdapter(){
+                            @Override
+                            public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+                                log.debug("读取的消息是:"+msg.toString());
+//                                ctx.writeAndFlush(msg.toString());
+                                String s = msg.toString();
+                                super.channelRead(ctx, s);
+                            }
+                        });
+                        pipeline.addLast(new ChannelInboundHandlerAdapter(){
+                            @Override
+                            public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+                                log.debug("发送的消息是:"+msg);
+                                ctx.writeAndFlush(ctx.alloc().buffer().writeBytes(msg.toString().getBytes()));
+                            }
+                        });
+                        /*pipeline.addLast("w1",new ChannelOutboundHandlerAdapter(){
+                            @Override
+                            public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
+//                                super.write(ctx, msg, promise);
+                                log.debug("发送的消息是:"+msg);
+                                ctx.writeAndFlush(msg);
+                            }
+                        });*/
+                    }
+                }).bind(8080).sync().channel().read();
+    }
+}
+```
 
-# Netty常见参数学习以及优化
+```java
+//客户端代码
+@Slf4j
+public class WorkerClient {
+    public static void main(String[] args) throws InterruptedException {
+        NioEventLoopGroup group = new NioEventLoopGroup();
+        Channel channel = new Bootstrap().group(group).channel(NioSocketChannel.class).handler(new ChannelInitializer<NioSocketChannel>() {
+            @Override
+            protected void initChannel(NioSocketChannel nioSocketChannel) throws Exception {
+                nioSocketChannel.pipeline().addLast(new StringEncoder());
+                nioSocketChannel.pipeline().addLast(new ChannelInboundHandlerAdapter(){
+                    @Override
+                    public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+//                    super.channelRead(ctx, msg);
+                        ByteBuf byteBuf = (ByteBuf) msg;
+                        log(byteBuf);
+                        WorkerClient.log.debug("客户端读取的消息是:"+byteBuf.toString());
+                        super.channelRead(ctx, msg);
+                    }
+                });
+            }
+        }).connect(new InetSocketAddress("127.0.0.1", 8080)).sync().channel();
+        new Thread(()->{
+            Scanner scanner = new Scanner(System.in);
+            while(true) {
+                String s = scanner.nextLine();
+                if ("q".equals(s)) {
+                    channel.writeAndFlush(s);
+//                    优雅关闭客户端
+                    channel.close();
+                    break;
+                }else {
+                    channel.writeAndFlush(s);
+                }
+            }
+        },"write_1").start();
+
+        channel.closeFuture().addListener(new ChannelFutureListener() {
+            @Override
+            public void operationComplete(ChannelFuture future) throws Exception {
+                group.shutdownGracefully();
+            }
+        });
+
+    }
+
+}
+```
+
+
+
+# Netty进阶
+
+### 黏包与半包
+
+1. 滑动窗口：TCP以一个段(segment)为单位，每发送一个段需要进行一次确认应答(ack)处理，但如果这么做，缺点是包的往返时间越长性能越差
+   1. 窗口实际就起到一个缓冲区的作用，同时也能起到流量控制的作用
+   2. 图中深色的部分既要发送的数据，高亮的部分即窗口
+   3. 窗口内的数据才允许被发送，当应答未到达前，窗口必须停止滑动
+   4. 如果1001-2000这个段的数据ack回来了，窗口就可以向前滑动
+   5. 接收方也会维护一个窗口，只要落在窗口内的数据才允许被接受
+2. 现象分析
+   - 黏包
+     - 现象：发送abc def，接收abcdef
+     - 原因：
+       - 应用层:接收方ByteBuf设置太大(netty默认1024)
+       - 滑动窗口:假设发送方256Bytes表示一个完整报文，但由于接收方处理不及时且窗口大小足够大，这256bytes字节就会缓冲在接收方的滑动窗口中，当滑动窗口缓冲了多个报文就会黏包
+       - Nagle算法:会造成黏包
+   - 半包
+     - 现象: 发送abcdef 接收abc def
+     - 原因: 
+       - 应用层:接收方ByteBuf小于实际发送数据量
+       - 滑动窗口：假设接收方的窗口只剩了128bytes，发送方的报文大小是256bytes，这时放不下了，只能先发送前128bytes，等待ack后才能发送剩余部分，这就造成了半包
+       - MSS限制:当发送的数据超过MSS限制后，会将数据切分发送，就会造成半包
+3. 本质是因为TCP是流式协议，消息无边界
+4. https://www.bilibili.com/video/BV1py4y1E7oA/?p=93&spm_id_from=pageDriver&vd_source=000766059912952028e3af1ddb9f2463
+
+### 解决方案
+
+- #### 创建短连接
+
+```java
+//短连接使用的就是在每一次发送的完之后就将连接断开，在下一次发送的时候再连接，这样会导致连接消耗的资源很多
+//关键代码
+Bootstrap bootstrap= new Bootstrap().group(clientEvent).channel(NioSocketChannel.class).handler(new ChannelInitializer<SocketChannel>() {
+                @Override
+                protected void initChannel(SocketChannel socketChannel) throws Exception {
+                    socketChannel.pipeline().addLast(new ChannelInboundHandlerAdapter() {
+                        /*会在连接建立的时候出发active事件*/
+                        @Override
+                        public void channelActive(ChannelHandlerContext ctx) throws Exception {
+                            ByteBuf buf = ctx.alloc().buffer(16);
+                            buf.writeBytes(new byte[]{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,});
+                            ctx.writeAndFlush(buf);
+                        }
+                    });
+                }
+            });
+             connect = bootstrap.connect(new InetSocketAddress("127.0.0.1", 8080)).sync().channel();
+             connect.close();
+             clientEvent.shutdownGracefully();
+```
+
+
+
+- #### 使用netty自带的方法，配置定长截取，需要注意的是需要规定的是最大的数据的大小
+
+```
+
+```
+
+
 
 # Netty源码分析
 

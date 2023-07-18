@@ -48,6 +48,8 @@ public class WorkerClient {
                 String s = scanner.nextLine();
                 if ("q".equals(s)) {
                     channel.writeAndFlush(s);
+//                    优雅关闭客户端
+                    channel.close();
                     break;
                 }else {
                     channel.writeAndFlush(s);
