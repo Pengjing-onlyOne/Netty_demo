@@ -1,4 +1,4 @@
-package com.netty.update.stickyAndHalfWrapped;
+package com.netty.update.stickyAndHalfWrapped.fixLength;
 
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;

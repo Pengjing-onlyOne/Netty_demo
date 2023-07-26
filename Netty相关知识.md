@@ -2264,7 +2264,6 @@ public class WorkerClient {
        - 滑动窗口：假设接收方的窗口只剩了128bytes，发送方的报文大小是256bytes，这时放不下了，只能先发送前128bytes，等待ack后才能发送剩余部分，这就造成了半包
        - MSS限制:当发送的数据超过MSS限制后，会将数据切分发送，就会造成半包
 3. 本质是因为TCP是流式协议，消息无边界
-4. https://www.bilibili.com/video/BV1py4y1E7oA/?p=93&spm_id_from=pageDriver&vd_source=000766059912952028e3af1ddb9f2463
 
 ### 解决方案
 
@@ -2296,11 +2295,275 @@ Bootstrap bootstrap= new Bootstrap().group(clientEvent).channel(NioSocketChannel
 
 - #### 使用netty自带的方法，配置定长截取，需要注意的是需要规定的是最大的数据的大小
 
+```java
+//关键代码
+
+                        //设置缓冲区的大小
+//                        socketChannel.config().setRecvByteBufAllocator(new FixedRecvByteBufAllocator(10));
+                         socketChannel.pipeline().addLast(new FixedLengthFrameDecoder(10));
 ```
 
+- #### 使用换行符来进行消息的界定
+
+```java
+@Slf4j
+public class DelimiterClient {
+    public static void main(String[] args) throws InterruptedException {
+        new Bootstrap()
+                .group(new NioEventLoopGroup())
+                .channel(NioSocketChannel.class)
+                .handler(new ChannelInitializer<SocketChannel>() {
+                    @Override
+                    protected void initChannel(SocketChannel socketChannel) throws Exception {
+                        //打印日志
+                        socketChannel.pipeline().addLast(new LoggingHandler(LogLevel.DEBUG));
+                        socketChannel.pipeline().addLast(new ChannelInboundHandlerAdapter(){
+                            @Override
+                            public void channelActive(ChannelHandlerContext ctx) throws Exception {
+                                Random r =new Random();
+                                ByteBuf buf = ctx.alloc().buffer();
+                                String message = "";
+                                for (int i = 0; i < 10; i++) {
+                                     message +=  createMessage(r.nextInt(256) + 1, i + "");
+//                                     buf.writeBytes(message.getBytes());
+                                }
+                                //如果字符组不是Bytebuf会导致发送不出去
+                                buf.writeBytes(message.getBytes());
+                                ctx.writeAndFlush(buf);
+//                                super.channelActive(ctx);
+                            }
+                        });
+                    }
+                }).connect(new InetSocketAddress("127.0.0.1",8080)).sync().channel().read();
+    }
+
+    //创建消息发
+    public static String createMessage(int leng,String s){
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < leng; i++) {
+            sb.append(s);
+        }
+        sb.append("\n");
+        return sb.toString();
+    }
+}
 ```
 
 
+
+- #### LengthFieldBasedFrameDecoder
+
+  - lengthFieldOffset:记录长度的偏移量
+  - lengthFieldLength :  长度本身占用的字节数
+  -  lengthAdjustment :长度的调整
+  -   initialBytesToStrip : 舍弃的字节位数
+
+```java
+public class TestLengthFieldDecoder {
+    public static void main(String[] args) {
+        EmbeddedChannel channel = new EmbeddedChannel(
+                /**
+                 * 接收的最大数
+                 * 记录长度的偏移量,偏移几个字节是长度域
+                 * 长度所占用的字节数
+                 * 长度的调整
+                 * 需要跳过的字节数
+                 */
+                new LoggingHandler(LogLevel.DEBUG),
+                new LengthFieldBasedFrameDecoder(1024,8,4,0,12),
+                new LoggingHandler(LogLevel.DEBUG)
+        );
+
+        //4个字节的内容长度 实际内容
+        ByteBuf buf = ByteBufAllocator.DEFAULT.buffer();
+        send(buf,"Hello, World");
+        send(buf,"Hi");
+        channel.writeInbound(buf);
+    }
+
+    public static void send(ByteBuf buf,String content){
+        byte[] bytes = content.getBytes();
+        //如果在消息的长度前面添加了相对应的长度或者数据,就需要使用,lengthFieldOffset调整接收的消息的长度
+        buf.writeBytes("pengjing".getBytes());
+        buf.writeInt(bytes.length);
+        buf.writeBytes(bytes);
+    }
+}
+```
+
+- #### 协议的解析与设计
+
+- redis协议
+
+```java
+public static void main(String[] args) {
+        Scanner scanner = new Scanner(System.in);
+        System.out.println("请输入redis服务器地址（回车直接本地服务器：localhost）");
+        String hostname = scanner.nextLine();
+        if (hostname.equals("")){
+            hostname = "localhost";
+        }
+        int port;
+        System.out.println("请输入redis端口(回车直接端口默认：6379)");
+        while (true){
+            try {
+                String str = scanner.nextLine();
+                if (str.equals("")){
+                    port = 6379;
+                }else {
+                    port = Integer.parseInt(scanner.nextLine());
+                }
+                break;
+            }catch (NumberFormatException e){
+                System.out.println("请输入合法端口:"+e.getMessage());
+            }
+        }
+        NioEventLoopGroup boss = new NioEventLoopGroup();
+        Bootstrap bootstrap = new Bootstrap()
+                .group(boss)
+                .channel(NioSocketChannel.class)
+                .handler(new ChannelInitializer<NioSocketChannel>() {
+                    @Override
+                    protected void initChannel(NioSocketChannel channel){
+                        Scanner sc = new Scanner(System.in);
+                        channel.pipeline().addLast(new ChannelInboundHandlerAdapter(){
+                            @Override
+                            public void channelActive(ChannelHandlerContext ctx) {
+                                System.out.println("连接成功，请输入redis的命令指令");
+                                String commend = sc.nextLine();
+                                sendCommend(ctx, commend.trim());
+                            }
+                            @Override
+                            public void channelRead(ChannelHandlerContext ctx, Object msg) {
+                                ByteBuf byteBuf = (ByteBuf) msg;
+                                String resp = byteBuf.toString(StandardCharsets.UTF_8);
+//                                System.out.println("正常响应："+resp);
+                                resp = resp.replace("\r\n","")
+                                        .replace("+", "")
+                                        .replace("$-1", "");
+                                if (resp.contains("$")){
+                                    resp = resp.substring(2);
+                                }
+                                System.out.println(resp);
+                                if (resp.equals("-NOAUTH Authentication required.")){
+                                    System.out.println("监测到连接该redis没有验证密码，请输入密码验证：");
+                                    String password = sc.nextLine();
+                                    String verifyCommend = "auth "+password;
+                                    sendCommend(ctx, verifyCommend);
+                                }else {
+                                    String commend = sc.nextLine();
+                                    sendCommend(ctx, commend.trim());
+                                }
+                            }
+                        });
+                    }
+                });
+        try {
+            ChannelFuture connect = bootstrap.connect(new InetSocketAddress(hostname, port)).sync();
+            connect.channel().closeFuture().sync();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }finally {
+            boss.shutdownGracefully();
+        }
+    }
+
+    private static void sendCommend(ChannelHandlerContext ctx, String commend) {
+        //        空格+换行
+        final byte[] LINE = {13,10};
+        if (commend.equals("q")){
+            System.out.println("正在退出程序...");
+            ctx.close();
+        }
+        List<String> words = Arrays.asList(commend.split(" "));
+        ByteBuf buffer = ctx.alloc().buffer();
+        buffer.writeBytes(("*" + words.size()).getBytes(StandardCharsets.UTF_8));
+        buffer.writeBytes(LINE);
+        for (String word : words) {
+//            判断是不是中文汉字，如果是汉字，则每个汉字在utf-8 编码中占三个字节
+            if (checkChinese(word)){
+//                所以每个汉字的字节数*3
+                buffer.writeBytes(("$" + word.length()*3).getBytes(StandardCharsets.UTF_8));
+            }else {
+                buffer.writeBytes(("$" + word.length()).getBytes(StandardCharsets.UTF_8));
+            }
+            buffer.writeBytes(LINE);
+            buffer.writeBytes(word.getBytes(StandardCharsets.UTF_8));
+            buffer.writeBytes(LINE);
+        }
+        ctx.writeAndFlush(buffer);
+    }
+
+    public static boolean checkChinese(String name)
+    {
+        int n;
+        for(int i = 0; i < name.length(); i++) {
+            n = name.charAt(i);
+            if(!(19968 <= n && n <40869)) {
+                return false;
+            }
+        }
+        return true;
+    }
+}
+```
+
+- http协议
+
+```java
+@Slf4j
+public class TestHttp {
+    public static void main(String[] args) throws InterruptedException {
+        NioEventLoopGroup bossEvent = new NioEventLoopGroup();
+        NioEventLoopGroup workEvent = new NioEventLoopGroup(2);
+        Channel channel =  new ServerBootstrap()
+                .group(bossEvent,workEvent)
+                .channel(NioServerSocketChannel.class)
+                .childHandler(new ChannelInitializer<SocketChannel>() {
+                    @Override
+                    protected void initChannel(SocketChannel socketChannel) throws Exception {
+                        socketChannel.pipeline().addLast(new LoggingHandler(LogLevel.DEBUG));
+                        //表示http的编解码,既是入栈处理器,也是出站处理器
+                        socketChannel.pipeline().addLast(new HttpServerCodec());
+                        //在HttpServerCodec的返回中会存在DefaultHttpRequest和EmptyLastHttpContent两个对象,无论是什么请求都会有两个
+                        socketChannel.pipeline().addLast(new SimpleChannelInboundHandler<HttpRequest>() {
+                            @Override
+                            protected void channelRead0(ChannelHandlerContext channelHandlerContext, HttpRequest httpRequest) throws Exception {
+                                //可以使用SimpleChannelInboundHandler方法来接收自己需要的请求,减少if else的出现
+                                //可以返回给浏览器数据使用
+                                DefaultFullHttpResponse defaultFullHttpResponse = new DefaultFullHttpResponse(httpRequest.protocolVersion(), HttpResponseStatus.OK);
+                                //让浏览器知道内容发送完毕,需要给出返回体的长度
+                                byte[] bytes = "<h1>hello ,world</h1>".getBytes();
+                                defaultFullHttpResponse.headers().setInt(CONTENT_LENGTH,bytes.length);
+                                //返回给浏览器的内容
+                                defaultFullHttpResponse.content().writeBytes(bytes);
+
+                                channelHandlerContext.writeAndFlush(defaultFullHttpResponse);
+
+                            }
+                        });
+                        /*socketChannel.pipeline().addLast(new ChannelInboundHandlerAdapter(){
+                            @Override
+                            public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+                                log.debug("{}",msg);
+                            }
+                        });*/
+                    }
+                }).bind(8080).sync().channel();
+
+//        channel.close();
+        channel.closeFuture().addListener(new ChannelFutureListener() {
+            @Override
+            public void operationComplete(ChannelFuture future) throws Exception {
+                bossEvent.shutdownGracefully();
+                workEvent.shutdownGracefully();
+            }
+        });
+    }
+}
+```
+
+https://www.bilibili.com/video/BV1py4y1E7oA/?p=100&spm_id_from=pageDriver&vd_source=000766059912952028e3af1ddb9f2463
 
 # Netty源码分析
 

@@ -1,4 +1,4 @@
-package com.netty.update.stickyAndHalfWrapped;
+package com.netty.update.stickyAndHalfWrapped.fixLength;
 
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.ChannelInitializer;
@@ -29,6 +29,7 @@ public class SickServer {
                     protected void initChannel(SocketChannel socketChannel) throws Exception {
                         //设置缓冲区的大小
 //                        socketChannel.config().setRecvByteBufAllocator(new FixedRecvByteBufAllocator(10));
+                        //固定长度的消息
                          socketChannel.pipeline().addLast(new FixedLengthFrameDecoder(10));
                         /*配置日志*/
                         socketChannel.pipeline().addLast(new LoggingHandler(LogLevel.DEBUG));
