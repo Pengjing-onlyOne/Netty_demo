@@ -2563,7 +2563,189 @@ public class TestHttp {
 }
 ```
 
-https://www.bilibili.com/video/BV1py4y1E7oA/?p=100&spm_id_from=pageDriver&vd_source=000766059912952028e3af1ddb9f2463
+- #### 自定义协议要素
+
+  - 魔数:用来在第一时间判定是否是无效数据包
+  - 版本号:可以支持协议的升级
+  - 序列化算法:消息正文到底采用那种序列化反序列化方式，可以由此拓展，例如:json，protobuf，hessian，jdk
+  - 指令类型:是登录、注册、单聊、群聊等业务相关
+  - 请求序号;为了双工通信，提供异步能力
+  - 正文长度
+  - 消息正文
+
+- #### 编码
+
+  - 编码对象
+
+    ```java
+    @Data
+    public abstract class Message implements Serializable {
+    
+        public static Class<?> getMessageClass(int messageType) {
+            return messageClasses.get(messageType);
+        }
+    
+        private int sequenceId;
+    
+        private int messageType;
+    
+        public abstract int getMessageType();
+    
+        public static final int LoginRequestMessage = 0;
+    
+    
+        /**
+         * 请求类型 byte 值
+         */
+        public static final int RPC_MESSAGE_TYPE_REQUEST = 101;
+        /**
+         * 响应类型 byte 值
+         */
+        public static final int  RPC_MESSAGE_TYPE_RESPONSE = 102;
+    
+        private static final Map<Integer, Class<? extends Message>> messageClasses = new HashMap<>();
+    
+        static {
+            messageClasses.put(LoginRequestMessage, LoginRequestMessage.class);
+            /*messageClasses.put(LoginResponseMessage, LoginResponseMessage.class);
+            messageClasses.put(ChatRequestMessage, ChatRequestMessage.class);
+            messageClasses.put(ChatResponseMessage, ChatResponseMessage.class);
+            messageClasses.put(GroupCreateRequestMessage, GroupCreateRequestMessage.class);
+            messageClasses.put(GroupCreateResponseMessage, GroupCreateResponseMessage.class);
+            messageClasses.put(GroupJoinRequestMessage, GroupJoinRequestMessage.class);
+            messageClasses.put(GroupJoinResponseMessage, GroupJoinResponseMessage.class);
+            messageClasses.put(GroupQuitRequestMessage, GroupQuitRequestMessage.class);
+            messageClasses.put(GroupQuitResponseMessage, GroupQuitResponseMessage.class);
+            messageClasses.put(GroupChatRequestMessage, GroupChatRequestMessage.class);
+            messageClasses.put(GroupChatResponseMessage, GroupChatResponseMessage.class);
+            messageClasses.put(GroupMembersRequestMessage, GroupMembersRequestMessage.class);
+            messageClasses.put(GroupMembersResponseMessage, GroupMembersResponseMessage.class);
+            messageClasses.put(RPC_MESSAGE_TYPE_REQUEST, RpcRequestMessage.class);
+            messageClasses.put(RPC_MESSAGE_TYPE_RESPONSE, RpcResponseMessage.class);*/
+        }
+    }
+    ```
+
+  - 相关子类
+
+    ```java
+    /**
+     * 登录使用的对象
+     */
+    @Data
+    @ToString(callSuper = true)
+    public class LoginRequestMessage extends Message {
+        private String username;
+        private String password;
+    
+        public LoginRequestMessage() {
+        }
+    
+        public LoginRequestMessage(String username, String password) {
+            this.username = username;
+            this.password = password;
+        }
+    
+        @Override
+        public int getMessageType() {
+            return LoginRequestMessage;
+        }
+    }
+    ```
+
+  - 编解码对象
+
+    ```java
+    /**
+     * 1.魔数,用于在第一时间判定数据是否有效
+     * 2.版本号,可以支持协议的升级
+     * 3.序列化算法,消息正文所采用的序列化和反序列化的方式0:jdk,1:json,2:protoubuf,3:hessian
+     * 4.指令类型,是登录,注册,单聊等
+     * 5.请求序号,为了双工通信,提供异步能力
+     * 6.正文长度
+     * 7.消息正文
+     */
+    @Slf4j
+    public class MessageDecodec extends ByteToMessageCodec<Message> {
+        //自定义的编码操作,需要的相关数据为,固定的字节数最好是2的整数倍
+        @Override
+        protected void encode(ChannelHandlerContext ctx, Message msg, ByteBuf out) throws Exception {
+            //1.魔数,java使用的是cafeebabe
+            out.writeBytes("pengjing".getBytes());
+            //2.版本号
+            out.writeByte(1);
+            //3.序列化算法
+            out.writeByte(0);
+            //4.指令类型
+            out.writeByte(msg.getMessageType());
+            //5.请求序号
+            out.writeInt(msg.getSequenceId());
+            //无意义,对齐使用
+            out.writeByte(0xff);
+            //获取对象字节
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            ObjectOutputStream oos = new ObjectOutputStream(bos);
+            oos.writeObject(msg);
+            //对象
+            byte[] bytes = bos.toByteArray();
+            //6.正文长度
+            out.writeInt(bytes.length);
+    
+            //消息正文
+            out.writeBytes(bytes);
+    
+    
+    
+        }
+        @Override
+        protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
+            Message message = null;
+            //1.魔数
+            int magic_num = in.readInt();
+            //版本号
+            byte version = in.readByte();
+            //序列化算法
+            byte serializerType = in.readByte();
+            //指令
+            byte  messageType= in.readByte();
+            //请求序号
+            int sequenceId = in.readInt();
+            //无意义数据
+            in.readByte();
+            //对象长度
+            int lenth = in.readInt();
+            byte[] bytes = new byte[lenth];
+            in.readBytes(bytes,0,lenth);
+            //反序列化为对象
+            if(serializerType == 0){
+                //使用jdk转对象
+                ByteArrayInputStream bis = new ByteArrayInputStream(bytes);
+                ObjectInputStream ois = new ObjectInputStream(bis);
+                 message =(Message) ois.readObject();
+            }
+            log.debug("{},{},{},{},{},{}",magic_num,version,serializerType,messageType,sequenceId,lenth);
+            log.debug("{}",message);
+            out.add(message);
+        }
+    }
+    ```
+
+  - 测试类
+
+    ```java
+    public class EmbeddedTestMessage {
+        public static void main(String[] args) {
+            EmbeddedChannel embeddedChannel = new EmbeddedChannel(
+                    new LoggingHandler(),
+                    new MessageDecodec()
+            );
+            LoginRequestMessage loginRequestMessage = new LoginRequestMessage("zhangsan","123");
+            embeddedChannel.writeOutbound(loginRequestMessage);
+        }
+    }
+    ```
+
+    
 
 # Netty源码分析
 
