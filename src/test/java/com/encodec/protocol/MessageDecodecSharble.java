@@ -3,8 +3,9 @@ package com.encodec.protocol;
 import com.encodec.message.Message;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
+import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.handler.codec.ByteToMessageCodec;
+import io.netty.handler.codec.MessageToMessageCodec;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.ByteArrayInputStream;
@@ -18,23 +19,19 @@ import java.util.List;
  * @Description:
  * @Version: V1.0
  */
-
-/**
- * 1.魔数,用于在第一时间判定数据是否有效
- * 2.版本号,可以支持协议的升级
- * 3.序列化算法,消息正文所采用的序列化和反序列化的方式0:jdk,1:json,2:protoubuf,3:hessian
- * 4.指令类型,是登录,注册,单聊等
- * 5.请求序号,为了双工通信,提供异步能力
- * 6.正文长度
- * 7.消息正文
- */
 @Slf4j
-public class MessageDecodec extends ByteToMessageCodec<Message> {
+@ChannelHandler.Sharable
+/**
+ * 必须和帧解码器一起使用:LengthFieldBasedFrameDecoder ,确保接收的bytebuf的消息是完整的
+ */
+public class MessageDecodecSharble extends MessageToMessageCodec<ByteBuf,Message> {
+
     //设置魔数
     private static  final  byte[] magic_num = "pengjing".getBytes();
-    //自定义的编码操作,需要的相关数据为,固定的字节数最好是2的整数倍
+
     @Override
-    public void encode(ChannelHandlerContext ctx, Message msg, ByteBuf out) throws Exception {
+    protected void encode(ChannelHandlerContext ctx, Message msg, List<Object> outList) throws Exception {
+        ByteBuf out = ctx.alloc().buffer();
         //1.魔数,java使用的是cafeebabe
         out.writeBytes(magic_num);
         //2.版本号
@@ -59,11 +56,12 @@ public class MessageDecodec extends ByteToMessageCodec<Message> {
         //消息正文
         out.writeBytes(bytes);
 
-
-
+        outList.add(out);
     }
+
     @Override
-    public void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
+    protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
+
         Message message = null;
         byte[] bytes_magic = new byte[magic_num.length];
         //1.魔数
@@ -90,7 +88,7 @@ public class MessageDecodec extends ByteToMessageCodec<Message> {
             //使用jdk转对象
             ByteArrayInputStream bis = new ByteArrayInputStream(bytes);
             ObjectInputStream ois = new ObjectInputStream(bis);
-             message =(Message) ois.readObject();
+            message =(Message) ois.readObject();
         }
         log.debug("魔数是:{},版本号:{},序列化算法:{},:请求序号:{},{},对象长度:{}", StandardCharsets.UTF_8.decode(buffer.nioBuffer()),version,serializerType,messageType,sequenceId,lenth);
         log.debug("{}",message);

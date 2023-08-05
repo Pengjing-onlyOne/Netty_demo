@@ -2745,7 +2745,127 @@ public class TestHttp {
     }
     ```
 
+  - #### 解码器的使用
+  
+    - 使用的是入栈的操作，在入栈的时候会进行解码
+    - 解码器的使用需要防止因为网络的波动产生半包的问题，需要使用到的是帧解码器
+    - 在提取公共的handle的时候，需要注意的是有的handle是不允许再多线程下使用的（@@Sharable表示可以公用）
+  
+    ```java
+    public class EmbeddedTestMessage {
+        public static void main(String[] args) throws Exception {
     
+            //LengthFieldBasedFrameDecoder handle是不能共用的,在多线程下可能会将不同的数据拼接在一起
+            //能否支持多线程使用的handle.添加有@Sharable表示可以公用
+            EmbeddedChannel embeddedChannel = new EmbeddedChannel(
+                    new LoggingHandler(),
+                    //防止半包问题,添加帧解码器
+                    new LengthFieldBasedFrameDecoder(1024,16,4,0,0),
+                    new MessageDecodec()
+            );
+    
+            //encode
+            LoginRequestMessage loginRequestMessage = new LoginRequestMessage("zhangsan","123");
+            embeddedChannel.writeOutbound(loginRequestMessage);
+    
+            //decode 解码器
+            ByteBuf buffer = ByteBufAllocator.DEFAULT.buffer(1024);
+            new MessageDecodec().encode(null,loginRequestMessage,buffer);
+    
+            //设置切片
+            ByteBuf slice = buffer.slice(0, 100);
+            ByteBuf slice_1 = buffer.slice(100, buffer.readableBytes()-100);
+            //入栈操作会激活解码器
+            embeddedChannel.writeInbound(slice); //会调用release方法,将buff应用计数-1
+            buffer.retain(); //将应用计数+1
+            embeddedChannel.writeInbound(slice_1);
+    
+        }
+    }
+    ```
+  
+  - ####  @Shable的使用
+  
+    ```java
+    @Slf4j
+    @ChannelHandler.Sharable
+    /**
+     * 必须和帧解码器一起使用:LengthFieldBasedFrameDecoder ,确保接收的bytebuf的消息是完整的
+     */
+    public class MessageDecodecSharble extends MessageToMessageCodec<ByteBuf,Message> {
+    
+        //设置魔数
+        private static  final  byte[] magic_num = "pengjing".getBytes();
+    
+        @Override
+        protected void encode(ChannelHandlerContext ctx, Message msg, List<Object> outList) throws Exception {
+            ByteBuf out = ctx.alloc().buffer();
+            //1.魔数,java使用的是cafeebabe
+            out.writeBytes(magic_num);
+            //2.版本号
+            out.writeByte(1);
+            //3.序列化算法
+            out.writeByte(0);
+            //4.指令类型
+            out.writeByte(msg.getMessageType());
+            //5.请求序号
+            out.writeInt(msg.getSequenceId());
+            //无意义,对齐使用
+            out.writeByte(0xff);
+            //获取对象字节
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            ObjectOutputStream oos = new ObjectOutputStream(bos);
+            oos.writeObject(msg);
+            //对象
+            byte[] bytes = bos.toByteArray();
+            //6.正文长度
+            out.writeInt(bytes.length);
+    
+            //消息正文
+            out.writeBytes(bytes);
+    
+            outList.add(out);
+        }
+    
+        @Override
+        protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
+    
+            Message message = null;
+            byte[] bytes_magic = new byte[magic_num.length];
+            //1.魔数
+            in.readBytes(bytes_magic, 0, magic_num.length);
+    
+            ByteBuf buffer =  ByteBufAllocator.DEFAULT.buffer(bytes_magic.length);
+            buffer.writeBytes(bytes_magic);
+            //版本号
+            byte version = in.readByte();
+            //序列化算法
+            byte serializerType = in.readByte();
+            //指令
+            byte  messageType= in.readByte();
+            //请求序号
+            int sequenceId = in.readInt();
+            //无意义数据
+            in.readByte();
+            //对象长度
+            int lenth = in.readInt();
+            byte[] bytes = new byte[lenth];
+            in.readBytes(bytes,0,lenth);
+            //反序列化为对象
+            if(serializerType == 0){
+                //使用jdk转对象
+                ByteArrayInputStream bis = new ByteArrayInputStream(bytes);
+                ObjectInputStream ois = new ObjectInputStream(bis);
+                message =(Message) ois.readObject();
+            }
+            log.debug("魔数是:{},版本号:{},序列化算法:{},:请求序号:{},{},对象长度:{}", StandardCharsets.UTF_8.decode(buffer.nioBuffer()),version,serializerType,messageType,sequenceId,lenth);
+            log.debug("{}",message);
+            out.add(message);
+        }
+    }
+    ```
+  
+    https://www.bilibili.com/video/BV1py4y1E7oA/?p=109&spm_id_from=pageDriver&vd_source=000766059912952028e3af1ddb9f2463
 
 # Netty源码分析
 
