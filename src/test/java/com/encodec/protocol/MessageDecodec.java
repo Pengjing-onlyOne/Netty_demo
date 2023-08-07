@@ -31,7 +31,7 @@ import java.util.List;
 @Slf4j
 public class MessageDecodec extends ByteToMessageCodec<Message> {
     //设置魔数
-    private static  final  byte[] magic_num = "pengjing".getBytes();
+    private static  final  byte[] magic_num = "peng".getBytes();
     //自定义的编码操作,需要的相关数据为,固定的字节数最好是2的整数倍
     @Override
     public void encode(ChannelHandlerContext ctx, Message msg, ByteBuf out) throws Exception {
@@ -42,10 +42,11 @@ public class MessageDecodec extends ByteToMessageCodec<Message> {
         //3.序列化算法
         out.writeByte(0);
         //4.指令类型
-        out.writeByte(msg.getMessageType());
+        out.writeInt(msg.getMessageType());
         //5.请求序号
         out.writeInt(msg.getSequenceId());
         //无意义,对齐使用
+        out.writeByte(0xff);
         out.writeByte(0xff);
         //获取对象字节
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
@@ -76,10 +77,11 @@ public class MessageDecodec extends ByteToMessageCodec<Message> {
         //序列化算法
         byte serializerType = in.readByte();
         //指令
-        byte  messageType= in.readByte();
+        int  messageType= in.readInt();
         //请求序号
         int sequenceId = in.readInt();
         //无意义数据
+        in.readByte();
         in.readByte();
         //对象长度
         int lenth = in.readInt();
