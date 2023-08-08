@@ -1,11 +1,13 @@
-package com.encodec.protocol;
+package com.pengjing.protocol;
 
 import com.alibaba.fastjson2.JSON;
-import com.encodec.message.Message;
 import com.google.gson.Gson;
-import com.utils.BytebuUtils;
+import com.pengjing.message.LoginRequestMessage;
+import com.pengjing.message.LoginResponseMessage;
+import com.pengjing.message.Message;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
+import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.MessageToMessageCodec;
 import lombok.extern.slf4j.Slf4j;
@@ -28,9 +30,10 @@ import java.util.List;
  *  * 7.消息正文
  */
 @Slf4j
+@ChannelHandler.Sharable
 public class MessageDecodec4Json extends MessageToMessageCodec<ByteBuf, Message> {
     //使用json序列化的方式,编解码数据
-    private static final  byte[] magic_num = "pengJ".getBytes();
+    private static final  byte[] magic_num = "P".getBytes();
     @Override
     public  void encode(ChannelHandlerContext ctx, Message msg, List<Object> out) throws Exception {
         //创建bytebuf
@@ -53,9 +56,6 @@ public class MessageDecodec4Json extends MessageToMessageCodec<ByteBuf, Message>
         buffer.writeInt(messageBytes.length);
         //消息正文
         buffer.writeBytes(messageBytes);
-        System.out.println("========解码器中的数据========");
-        BytebuUtils.log(buffer);
-        System.out.println("================");
 
         out.add(buffer);
 
@@ -82,15 +82,24 @@ public class MessageDecodec4Json extends MessageToMessageCodec<ByteBuf, Message>
         byte[] classBytes = new byte[classLen];
         msg.readBytes(classBytes,0, classLen);
         ByteBuf buffer = ByteBufAllocator.DEFAULT.buffer();
-        System.out.println("======编码器中的数据======");
-        BytebuUtils.log(buffer.writeBytes(classBytes));
-        System.out.println("============");
         Gson gson = new Gson();
-        Message message1 = gson.fromJson(new String(classBytes), Message.class);
-//        Message message = JSONObject.parseObject(new String(classBytes), LoginRequestMessage.class);
-        out.add(message1);
+        Message message;
+        switch (messageType){
+            case 0:
+                message = gson.fromJson(new String(classBytes), LoginRequestMessage.class);
+                break;
+            case 1:
+                message = gson.fromJson(new String(classBytes), LoginResponseMessage.class);
+                break;
+            default:
+                message = null;
+        }
+
+//        Message message = JSONObject.parseObject(new String(classBytes), Message.class);
+        System.out.println("序列化的数据为:"+gson.toJson(message));
+        out.add(message);
 
         log.debug("魔数:{},版本号:{},序列化算法:{},指令类型:{},获取请求序列号:{},内容长度:{}", StandardCharsets.UTF_8.decode(magicNumBuf.nioBuffer()),version,serializableId,messageType,sequenceId,classLen);
-        log.debug("对象为:{}",message1);
+        log.debug("对象为:{}",message);
     }
 }

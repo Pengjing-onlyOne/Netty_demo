@@ -24,7 +24,7 @@ public class MessageDecodecTest {
         EmbeddedChannel embeddedChannel = new EmbeddedChannel(
                 new LoggingHandler(LogLevel.DEBUG),
                 ////防止半包问题,添加帧解码器
-                new LengthFieldBasedFrameDecoder(1024,16,4,0,0),
+                new LengthFieldBasedFrameDecoder(1024,12,4,0,0),
                 new MessageDecodec4Json()
         );
         LoginRequestMessage loginRequestMessage = new LoginRequestMessage("zhangsan","123");
