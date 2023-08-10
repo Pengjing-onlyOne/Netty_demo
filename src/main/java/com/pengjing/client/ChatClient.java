@@ -1,7 +1,9 @@
 package com.pengjing.client;
 
 import com.alibaba.fastjson2.JSON;
+import com.pengjing.message.ChatRequestMessage;
 import com.pengjing.message.LoginRequestMessage;
+import com.pengjing.message.LoginResponseMessage;
 import com.pengjing.protocol.MessageDecodec4Json;
 import com.pengjing.protocol.ProcotolFrameDecoder;
 import io.netty.bootstrap.Bootstrap;
@@ -14,11 +16,14 @@ import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
+import io.netty.util.internal.StringUtil;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.Scanner;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * @Description:
@@ -31,6 +36,9 @@ public class ChatClient {
         NioEventLoopGroup workerEvent = new NioEventLoopGroup();
         LoggingHandler LOGGING_HANDLER = new LoggingHandler(LogLevel.DEBUG);
         MessageDecodec4Json MESSAGEDECODECSHARBLE = new MessageDecodec4Json();
+        //线程之间通信
+        CountDownLatch WAIT_FORLOGIN = new CountDownLatch(1);
+        AtomicBoolean LOGIN = new AtomicBoolean(false);
         try {
             Bootstrap bootstrap = new Bootstrap();
             bootstrap.group(workerEvent);
@@ -48,6 +56,13 @@ public class ChatClient {
 
                         @Override
                         public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+                            if(msg instanceof LoginResponseMessage){
+                                LoginResponseMessage response = (LoginResponseMessage) msg;
+                                if(response.isStatus()){
+                                    LOGIN.set(true);
+                                }
+                                WAIT_FORLOGIN.countDown();
+                            }
                             log.debug("得到的消息是:{}"+JSON.toJSONString(msg));
                         }
 
@@ -63,6 +78,55 @@ public class ChatClient {
                                 String password = scanner.nextLine();
                                 LoginRequestMessage loginRequestMessage = new LoginRequestMessage(username, password);
                                 ctx.writeAndFlush(loginRequestMessage);
+
+                                //等待线程结束
+                                try {
+                                    WAIT_FORLOGIN.await();
+                                    if(!LOGIN.get()){
+                                        ctx.channel().close();
+                                    }
+                                    //如果登录失败,重新输入用户名和密码登录
+                                    while(true){
+                                        System.out.println("============================================");
+                                        System.out.println("send [username] [content]");
+                                        System.out.println("gsend [group name] [content]");
+                                        System.out.println("gcreat [group name] [m1,m2,m3....]");
+                                        System.out.println("gmembers [group name] ");
+                                        System.out.println("gjoin [group name] ");
+                                        System.out.println("gquit [group name] ");
+                                        System.out.println("quit ");
+                                        System.out.println("============================================");
+                                        String message = scanner.nextLine();
+                                        if(!StringUtil.isNullOrEmpty(message)) {
+                                            String[] messages = message.split(" ");
+                                            switch(messages[0]){
+                                                case "send":
+                                                    ctx.writeAndFlush(new ChatRequestMessage(username,messages[1],messages[2]));
+                                                    break;
+                                               /* case "gsend":
+                                                    break;
+                                                case "gcreat":
+                                                    break;
+                                                case "gmembers":
+                                                    break;
+                                                case "gjoin":
+                                                    break;
+                                                case "gquit":
+                                                    break;
+                                                case "quit":
+                                                    break;*/
+                                            }
+
+                                        }else {
+                                            System.out.println("输入为空,请重新输入");
+                                            continue;
+                                        }
+
+                                    }
+                                    //如果没有失败,进入连天界面
+                                } catch (InterruptedException e) {
+                                    e.printStackTrace();
+                                }
                             }).start();
                         }
                     });
@@ -76,4 +140,5 @@ public class ChatClient {
             workerEvent.shutdownGracefully();
         }
     }
+
 }

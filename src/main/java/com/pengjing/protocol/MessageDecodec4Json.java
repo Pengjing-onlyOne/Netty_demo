@@ -2,6 +2,8 @@ package com.pengjing.protocol;
 
 import com.alibaba.fastjson2.JSON;
 import com.google.gson.Gson;
+import com.pengjing.message.ChatRequestMessage;
+import com.pengjing.message.ChatResponseMessage;
 import com.pengjing.message.LoginRequestMessage;
 import com.pengjing.message.LoginResponseMessage;
 import com.pengjing.message.Message;
@@ -90,6 +92,12 @@ public class MessageDecodec4Json extends MessageToMessageCodec<ByteBuf, Message>
                 break;
             case 1:
                 message = gson.fromJson(new String(classBytes), LoginResponseMessage.class);
+                break;
+            case 2:
+                message = gson.fromJson(new String(classBytes), ChatRequestMessage.class);
+                break;
+            case 3:
+                message = gson.fromJson(new String(classBytes), ChatResponseMessage.class);
                 break;
             default:
                 message = null;
