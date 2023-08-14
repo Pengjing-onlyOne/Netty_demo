@@ -7,9 +7,6 @@ import lombok.ToString;
 @ToString(callSuper = true)
 public class LoginResponseMessage extends AbstractResponseMessage {
 
-    public LoginResponseMessage() {
-    }
-
     public LoginResponseMessage(boolean status, String reason) {
         super(status, reason);
     }

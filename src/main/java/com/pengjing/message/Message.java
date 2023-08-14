@@ -54,7 +54,7 @@ public abstract class Message implements Serializable {
     static {
         messageClasses.put(LoginRequestMessage, LoginRequestMessage.class);
         messageClasses.put(LoginResponseMessage, LoginResponseMessage.class);
-        /*messageClasses.put(ChatRequestMessage, ChatRequestMessage.class);
+        messageClasses.put(ChatRequestMessage, ChatRequestMessage.class);
         messageClasses.put(ChatResponseMessage, ChatResponseMessage.class);
         messageClasses.put(GroupCreateRequestMessage, GroupCreateRequestMessage.class);
         messageClasses.put(GroupCreateResponseMessage, GroupCreateResponseMessage.class);
@@ -67,7 +67,7 @@ public abstract class Message implements Serializable {
         messageClasses.put(GroupMembersRequestMessage, GroupMembersRequestMessage.class);
         messageClasses.put(GroupMembersResponseMessage, GroupMembersResponseMessage.class);
         messageClasses.put(RPC_MESSAGE_TYPE_REQUEST, RpcRequestMessage.class);
-        messageClasses.put(RPC_MESSAGE_TYPE_RESPONSE, RpcResponseMessage.class);*/
+        messageClasses.put(RPC_MESSAGE_TYPE_RESPONSE, RpcResponseMessage.class);
     }
 
 }

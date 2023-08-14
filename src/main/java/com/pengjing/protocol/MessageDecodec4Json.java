@@ -4,9 +4,21 @@ import com.alibaba.fastjson2.JSON;
 import com.google.gson.Gson;
 import com.pengjing.message.ChatRequestMessage;
 import com.pengjing.message.ChatResponseMessage;
+import com.pengjing.message.GroupChatRequestMessage;
+import com.pengjing.message.GroupChatResponseMessage;
+import com.pengjing.message.GroupCreateRequestMessage;
+import com.pengjing.message.GroupCreateResponseMessage;
+import com.pengjing.message.GroupJoinRequestMessage;
+import com.pengjing.message.GroupJoinResponseMessage;
+import com.pengjing.message.GroupMembersRequestMessage;
+import com.pengjing.message.GroupMembersResponseMessage;
+import com.pengjing.message.GroupQuitRequestMessage;
+import com.pengjing.message.GroupQuitResponseMessage;
 import com.pengjing.message.LoginRequestMessage;
 import com.pengjing.message.LoginResponseMessage;
 import com.pengjing.message.Message;
+import com.pengjing.message.PingMessage;
+import com.pengjing.message.PongMessage;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.ChannelHandler;
@@ -14,7 +26,6 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.MessageToMessageCodec;
 import lombok.extern.slf4j.Slf4j;
 
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
@@ -99,15 +110,51 @@ public class MessageDecodec4Json extends MessageToMessageCodec<ByteBuf, Message>
             case 3:
                 message = gson.fromJson(new String(classBytes), ChatResponseMessage.class);
                 break;
+            case 4:
+                message = gson.fromJson(new String(classBytes), GroupCreateRequestMessage.class);
+                break;
+            case 5:
+                message = gson.fromJson(new String(classBytes), GroupCreateResponseMessage.class);
+                break;
+            case 6:
+                message = gson.fromJson(new String(classBytes), GroupJoinRequestMessage.class);
+                break;
+            case 7:
+                message = gson.fromJson(new String(classBytes), GroupJoinResponseMessage.class);
+                break;
+            case 8:
+                message = gson.fromJson(new String(classBytes), GroupQuitRequestMessage.class);
+                break;
+            case 9:
+                message = gson.fromJson(new String(classBytes), GroupQuitResponseMessage.class);
+                break;
+            case 10:
+                message = gson.fromJson(new String(classBytes), GroupChatRequestMessage.class);
+                break;
+            case 11:
+                message = gson.fromJson(new String(classBytes), GroupChatResponseMessage.class);
+                break;
+            case 12:
+                message = gson.fromJson(new String(classBytes), GroupMembersRequestMessage.class);
+                break;
+            case 13:
+                message = gson.fromJson(new String(classBytes), GroupMembersResponseMessage.class);
+                break;
+            case 14:
+                message = gson.fromJson(new String(classBytes), PingMessage.class);
+                break;
+            case 15:
+                message = gson.fromJson(new String(classBytes), PongMessage.class);
+                break;
             default:
                 message = null;
         }
 
 //        Message message = JSONObject.parseObject(new String(classBytes), Message.class);
-        System.out.println("序列化的数据为:"+gson.toJson(message));
+//        System.out.println("序列化的数据为:"+gson.toJson(message));
         out.add(message);
 
-        log.debug("魔数:{},版本号:{},序列化算法:{},指令类型:{},获取请求序列号:{},内容长度:{}", StandardCharsets.UTF_8.decode(magicNumBuf.nioBuffer()),version,serializableId,messageType,sequenceId,classLen);
-        log.debug("对象为:{}",message);
+//        log.debug("魔数:{},版本号:{},序列化算法:{},指令类型:{},获取请求序列号:{},内容长度:{}", StandardCharsets.UTF_8.decode(magicNumBuf.nioBuffer()),version,serializableId,messageType,sequenceId,classLen);
+//        log.debug("对象为:{}",message);
     }
 }

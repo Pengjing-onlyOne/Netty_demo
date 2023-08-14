@@ -2,12 +2,19 @@ package com.pengjing.client;
 
 import com.alibaba.fastjson2.JSON;
 import com.pengjing.message.ChatRequestMessage;
+import com.pengjing.message.GroupChatRequestMessage;
+import com.pengjing.message.GroupCreateRequestMessage;
+import com.pengjing.message.GroupJoinRequestMessage;
+import com.pengjing.message.GroupMembersRequestMessage;
+import com.pengjing.message.GroupQuitRequestMessage;
 import com.pengjing.message.LoginRequestMessage;
 import com.pengjing.message.LoginResponseMessage;
+import com.pengjing.message.PingMessage;
 import com.pengjing.protocol.MessageDecodec4Json;
 import com.pengjing.protocol.ProcotolFrameDecoder;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelInitializer;
@@ -16,14 +23,20 @@ import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
+import io.netty.handler.timeout.IdleState;
+import io.netty.handler.timeout.IdleStateEvent;
+import io.netty.handler.timeout.IdleStateHandler;
 import io.netty.util.internal.StringUtil;
 import lombok.extern.slf4j.Slf4j;
 
+import java.util.Arrays;
 import java.util.Scanner;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
 /**
  * @Description:
@@ -48,8 +61,24 @@ public class ChatClient {
                 protected void initChannel(SocketChannel socketChannel)  {
                     //填写相关逻辑,帧解码器
                     socketChannel.pipeline().addLast(new ProcotolFrameDecoder());
-                    socketChannel.pipeline().addLast(LOGGING_HANDLER);
+//                    socketChannel.pipeline().addLast(LOGGING_HANDLER);
                     socketChannel.pipeline().addLast(MESSAGEDECODECSHARBLE);
+
+                    //添加一个写事件,超过3S没有输入,就自动发一条消息给服务器
+                    socketChannel.pipeline().addLast(new IdleStateHandler(0,3,0));
+                    //既可以做为入栈处理器,也可以作为出栈处理器
+                    socketChannel.pipeline().addLast(new ChannelDuplexHandler(){
+                        @Override
+                        public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
+                            //响应用户的特殊事件
+//                            super.userEventTriggered(ctx, evt);
+                            //IdleState#READER_IDLE
+                            IdleStateEvent event = (IdleStateEvent) evt;
+                            if (event.state() == IdleState.WRITER_IDLE) {
+                                ctx.writeAndFlush(new PingMessage());
+                            }
+                        }
+                    });
 
                     //发送消息
                     socketChannel.pipeline().addLast("Login_request",new ChannelInboundHandlerAdapter(){
@@ -63,7 +92,8 @@ public class ChatClient {
                                 }
                                 WAIT_FORLOGIN.countDown();
                             }
-                            log.debug("得到的消息是:{}"+JSON.toJSONString(msg));
+                            System.out.println("得到的消息是:{}"+JSON.toJSONString(msg));
+//                            log.debug("得到的消息是:{}"+JSON.toJSONString(msg));
                         }
 
                         @Override
@@ -103,25 +133,34 @@ public class ChatClient {
                                                 case "send":
                                                     ctx.writeAndFlush(new ChatRequestMessage(username,messages[1],messages[2]));
                                                     break;
-                                               /* case "gsend":
+                                                case "gsend":
+                                                    ctx.writeAndFlush(new GroupChatRequestMessage(username,messages[1],messages[2]));
                                                     break;
                                                 case "gcreat":
+                                                    String users = messages[2];
+                                                    Set<String> userSet = Arrays.stream(users.split(",")).collect(Collectors.toSet());
+                                                    ctx.writeAndFlush(new GroupCreateRequestMessage(username,messages[1],userSet));
                                                     break;
                                                 case "gmembers":
+                                                    ctx.writeAndFlush(new GroupMembersRequestMessage(messages[1]));
                                                     break;
                                                 case "gjoin":
+                                                    ctx.writeAndFlush(new GroupJoinRequestMessage(username,messages[1]));
                                                     break;
                                                 case "gquit":
+                                                    ctx.writeAndFlush(new GroupQuitRequestMessage(username,messages[1]));
                                                     break;
                                                 case "quit":
-                                                    break;*/
+                                                    ctx.channel().close();
+                                                    break;
+                                                default:
+                                                    continue;
                                             }
 
                                         }else {
                                             System.out.println("输入为空,请重新输入");
                                             continue;
                                         }
-
                                     }
                                     //如果没有失败,进入连天界面
                                 } catch (InterruptedException e) {

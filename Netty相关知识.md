@@ -2865,7 +2865,37 @@ public class TestHttp {
     }
     ```
   
-    https://www.bilibili.com/video/BV1py4y1E7oA/?p=111&spm_id_from=pageDriver&vd_source=000766059912952028e3af1ddb9f2463
+  - #### 连接假死
+  
+    - 原因
+      - 网络设备出现故障，例如网卡，机房等，底层的TCP链接已经断开，但应用程序没有感知到，任然占用着资源
+      - 公网网络不稳定，出现丢包，如果连续出现丢包，这时现象就是客户端数据发不出去，服务端也一直收不到数据，就这么一直耗着
+      - 应用程序线程阻塞，无法进行数据读写
+    - 问题
+      - 假死的连接占用资源不能释放
+      - 向假死的连接发送数据，得到的反馈是发送超时
+  
+    ```java
+    //使用空闲检测器 new IdleStateHandler() 用来判断是不是读空闲时间过长或者写空闲时间过长
+    、/表示超过5S没有读到消息就会触发一个连接超时的事件
+                        socketChannel.pipeline().addLast(new IdleStateHandler(5,0,0));
+                        //既可以做为入栈处理器,也可以作为出栈处理器
+                        socketChannel.pipeline().addLast(new ChannelDuplexHandler(){
+                            @Override
+                            public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
+                                //响应用户的特殊事件
+    //                            super.userEventTriggered(ctx, evt);
+                                //IdleState#READER_IDLE
+                                IdleStateEvent event = (IdleStateEvent) evt;
+                                if (event.state() == IdleState.READER_IDLE) {
+                                    System.out.println("超过了5S没有读到数据");
+                                    ctx.close();
+                                }
+                            }
+                        });
+    ```
+  
+    https://www.bilibili.com/video/BV1py4y1E7oA/?p=118&spm_id_from=pageDriver&vd_source=000766059912952028e3af1ddb9f2463
 
 # Netty源码分析
 

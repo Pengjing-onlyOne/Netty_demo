@@ -3,14 +3,6 @@ package com.pengjing.message;
 import lombok.Data;
 import lombok.ToString;
 
-/**
- * @Description:
- * @Version: V1.0
- */
-
-/**
- * 登录使用的对象
- */
 @Data
 @ToString(callSuper = true)
 public class LoginRequestMessage extends Message {
@@ -26,7 +18,7 @@ public class LoginRequestMessage extends Message {
     }
 
     @Override
-    public  int getMessageType() {
+    public int getMessageType() {
         return LoginRequestMessage;
     }
 }

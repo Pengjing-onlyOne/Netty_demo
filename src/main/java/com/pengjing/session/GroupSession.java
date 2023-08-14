@@ -54,4 +54,11 @@ public interface GroupSession {
      * @return 成员 channel 集合
      */
     List<Channel> getMembersChannel(String name);
+
+    /**
+     * 获取发送消息的组是否存在
+     * @param name
+     * @return
+     */
+    Boolean getGroup(String name);
 }
