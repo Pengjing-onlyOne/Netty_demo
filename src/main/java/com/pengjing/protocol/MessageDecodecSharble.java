@@ -15,6 +15,8 @@ import java.io.ObjectOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
+import static com.pengjing.message.Message.messageClasses;
+
 /**
  * @Description:
  * @Version: V1.0
@@ -45,11 +47,12 @@ public class MessageDecodecSharble extends MessageToMessageCodec<ByteBuf, Messag
         //无意义,对齐使用
         out.writeByte(0xff);
         //获取对象字节
-        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        /*ByteArrayOutputStream bos = new ByteArrayOutputStream();
         ObjectOutputStream oos = new ObjectOutputStream(bos);
         oos.writeObject(msg);
         //对象
-        byte[] bytes = bos.toByteArray();
+        byte[] bytes = bos.toByteArray();*/
+        byte[] bytes = Serializ.serializChoose.Json.encode(msg);
         //6.正文长度
         out.writeInt(bytes.length);
 
@@ -83,13 +86,15 @@ public class MessageDecodecSharble extends MessageToMessageCodec<ByteBuf, Messag
         int lenth = in.readInt();
         byte[] bytes = new byte[lenth];
         in.readBytes(bytes,0,lenth);
+        Class<? extends Message> messageClass = messageClasses.get(messageType);
+        message = Serializ.serializChoose.Json.decode(messageClass,bytes);
         //反序列化为对象
-        if(serializerType == 0){
+        /*if(serializerType == 0){
             //使用jdk转对象
             ByteArrayInputStream bis = new ByteArrayInputStream(bytes);
             ObjectInputStream ois = new ObjectInputStream(bis);
             message =(Message) ois.readObject();
-        }
+        }*/
         log.debug("魔数是:{},版本号:{},序列化算法:{},:请求序号:{},{},对象长度:{}", StandardCharsets.UTF_8.decode(buffer.nioBuffer()),version,serializerType,messageType,sequenceId,lenth);
         log.debug("{}",message);
         out.add(message);

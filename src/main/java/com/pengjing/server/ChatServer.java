@@ -1,6 +1,7 @@
 package com.pengjing.server;
 
 import com.pengjing.protocol.MessageDecodec4Json;
+import com.pengjing.protocol.MessageDecodecSharble;
 import com.pengjing.protocol.ProcotolFrameDecoder;
 import com.pengjing.server.handler.ChatRequestMessageHadnler;
 import com.pengjing.server.handler.CreateRequestMessageHandler;
@@ -33,7 +34,7 @@ public class ChatServer {
         NioEventLoopGroup bossEvent = new NioEventLoopGroup();
         NioEventLoopGroup workerEvent = new NioEventLoopGroup(2);
         LoggingHandler LOGGING_HANDLER = new LoggingHandler(LogLevel.DEBUG);
-        MessageDecodec4Json MESSAGEDECODECSHARBLE = new MessageDecodec4Json();
+        MessageDecodecSharble MESSAGEDECODECSHARBLE = new MessageDecodecSharble();
         LoginRequestMessageHandler LOGIN_HANDLER = new LoginRequestMessageHandler();
         ChatRequestMessageHadnler CHAT_HANDLER = new ChatRequestMessageHadnler();
         CreateRequestMessageHandler GROUP_CREATE_HANDLER = new CreateRequestMessageHandler();
