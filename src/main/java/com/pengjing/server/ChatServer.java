@@ -1,6 +1,6 @@
 package com.pengjing.server;
 
-import com.pengjing.protocol.MessageDecodec4Json;
+import com.pengjing.protocol.MessageDecodecSharble;
 import com.pengjing.protocol.ProcotolFrameDecoder;
 import com.pengjing.server.handler.ChatRequestMessageHadnler;
 import com.pengjing.server.handler.CreateRequestMessageHandler;
@@ -33,14 +33,24 @@ public class ChatServer {
         NioEventLoopGroup bossEvent = new NioEventLoopGroup();
         NioEventLoopGroup workerEvent = new NioEventLoopGroup(2);
         LoggingHandler LOGGING_HANDLER = new LoggingHandler(LogLevel.DEBUG);
-        MessageDecodec4Json MESSAGEDECODECSHARBLE = new MessageDecodec4Json();
+        //消息解码
+//        MessageDecodec4Json MESSAGEDECODECSHARBLE = new MessageDecodec4Json();
+        MessageDecodecSharble MESSAGEDECODECSHARBLE = new MessageDecodecSharble();
+        //登录请求处理器
         LoginRequestMessageHandler LOGIN_HANDLER = new LoginRequestMessageHandler();
+        //聊天请求处理器
         ChatRequestMessageHadnler CHAT_HANDLER = new ChatRequestMessageHadnler();
+        //群聊创建处理器
         CreateRequestMessageHandler GROUP_CREATE_HANDLER = new CreateRequestMessageHandler();
+        //群聊处理器
         GroupChatRequestMessageHandler G_CHAT_HANDLER = new GroupChatRequestMessageHandler();
+        //加入群聊处理器
         GroupJoinRequestMessageHandler G_JOIN_HANDLER = new GroupJoinRequestMessageHandler();
+        //请求群聊人数处理器
         GroupMembersRequestMessageHandler G_MEMBER_HANDLER = new GroupMembersRequestMessageHandler();
+        //群聊退出处理器
         GroupQuitRequestMessageHandler G_QUIT_HANDLER = new GroupQuitRequestMessageHandler();
+        //聊天退出处理器
         QuitHandler QUIT_HANDLER = new QuitHandler();
 
 
@@ -51,6 +61,10 @@ public class ChatServer {
             serverBootstrap.childHandler(new ChannelInitializer<SocketChannel>() {
                 @Override
                 protected void initChannel(SocketChannel socketChannel)  {
+
+                    socketChannel.pipeline().addLast(new ProcotolFrameDecoder());
+                    socketChannel.pipeline().addLast(MESSAGEDECODECSHARBLE);
+
                     //填写相关逻辑,帧解码器
 //                    socketChannel.pipeline().addLast(new ProcotolFrameDecoder());
 //                    socketChannel.pipeline().addLast(LOGGING_HANDLER);
@@ -70,9 +84,6 @@ public class ChatServer {
                             }
                         }
                     });
-
-                    socketChannel.pipeline().addLast(new ProcotolFrameDecoder());
-                    socketChannel.pipeline().addLast(MESSAGEDECODECSHARBLE);
                     socketChannel.pipeline().addLast(LOGIN_HANDLER);
                     socketChannel.pipeline().addLast(CHAT_HANDLER);
                     socketChannel.pipeline().addLast(GROUP_CREATE_HANDLER);

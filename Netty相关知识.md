@@ -1,3 +1,5 @@
+
+
 #  NIO基础
 
 non-blocking io 非阻塞IO
@@ -2896,6 +2898,309 @@ public class TestHttp {
     ```
   
     https://www.bilibili.com/video/BV1py4y1E7oA/?p=118&spm_id_from=pageDriver&vd_source=000766059912952028e3af1ddb9f2463
+
+# 优化与源码
+
+1. ## 优化
+
+   1. ### 扩展序列化算法
+
+      - 序列化，反序列化主要用在消息正文的转换上
+
+        - 序列化时，需要讲java对象变为要传输的数据（可以是byte[]或json等，最终都需要变成byte[]）
+        - 反序列化需要将传入的数据还原成java对象，便于处理
+
+      - 目前的代码仅支持java自带的序列化，反序列化机制，核心代码如下
+
+      - ```java
+        //反序列化
+        ByteArrayInputStream bis = new ByteArrayInputStream(bytes);
+        ObjectInputStream ois = new ObjectInputStream(bis);
+        message =(Message) ois.readObject();
+        
+        //序列化
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        ObjectOutputStream oos = new ObjectOutputStream(bos);
+        oos.writeObject(msg);
+        //对象
+        byte[] bytes = bos.toByteArray();
+        //6.正文长度
+        out.writeInt(bytes.length);
+        
+        //消息正文
+        out.writeBytes(bytes);
+        ```
+
+        为了支持序列化算法
+
+        抽象出一个接口用户实现序列化
+
+        ```java
+        public interface Serial {
+        
+            //序列化
+            <T> byte[] decode(T object);
+        
+            //反序列化
+              <T> T encode(Class<T> clazz, byte[] bytes);
+        
+             enum decodec implements Serial{
+                 //使用jdk自带的序列化
+                 Java{
+                     @Override
+                     public <T> byte[] decode(T object) {
+                         try {
+                             ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                             ObjectOutputStream oos = new ObjectOutputStream(bos);
+                             oos.writeObject(object);
+                             return bos.toByteArray();
+                         } catch (IOException e) {
+                             throw new RuntimeException("序列化失败");
+                         }
+                     }
+        
+                     @Override
+                     public <T> T encode(Class<T> clazz, byte[] bytes) {
+                         try {
+                             ByteArrayInputStream bis = new ByteArrayInputStream(bytes);
+                             ObjectInputStream ois = new ObjectInputStream(bis);
+                             return (T)ois.readObject();
+                         } catch (Exception e) {
+                             throw new RuntimeException("反序列化失败");
+                         }
+                     }
+                 },
+                 Json{
+                     @Override
+                     public <T> byte[] decode(T object) {
+        
+                         try {
+                             Gson gson = new Gson();
+                             return gson.toJson(object).getBytes(StandardCharsets.UTF_8);
+                         } catch (Exception e) {
+                             throw new RuntimeException("序列化失败");
+                         }
+                     }
+        
+                     @Override
+                     public <T> T encode(Class<T> clazz, byte[] bytes) {
+                         try {
+                             Gson gson = new Gson();
+                             String json = new String(bytes, StandardCharsets.UTF_8);
+                             return gson.fromJson(json,clazz);
+                         } catch (JsonSyntaxException e) {
+                             throw new RuntimeException("反序列化失败");
+                         }
+                     }
+                 }
+             }
+        }
+        ```
+        
+        优化代码
+        
+        ```java
+        @Slf4j
+        @ChannelHandler.Sharable
+        /**
+         * 必须和帧解码器一起使用:LengthFieldBasedFrameDecoder ,确保接收的bytebuf的消息是完整的
+         */
+        public class MessageDecodecSharble extends MessageToMessageCodec<ByteBuf, Message> {
+        
+            //设置魔数
+            private static  final  byte[] magic_num = "P".getBytes();
+        
+            @Override
+            protected void encode(ChannelHandlerContext ctx, Message msg, List<Object> outList) throws Exception {
+                ByteBuf out = ctx.alloc().buffer();
+                //1.魔数,java使用的是cafeebabe
+                out.writeBytes(magic_num);
+                //2.版本号
+                out.writeByte(1);
+                //3.序列化算法
+                out.writeByte(Config.getSerialDecodec().ordinal());
+                //4.指令类型
+                out.writeInt(msg.getMessageType());
+                //5.请求序号
+                out.writeInt(msg.getSequenceId());
+                //无意义,对齐使用
+                out.writeByte(0xff);
+                //获取对象字节
+                /*ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                ObjectOutputStream oos = new ObjectOutputStream(bos);
+                oos.writeObject(msg);
+                //对象
+                byte[] bytes = bos.toByteArray();*/
+                byte[] bytes = Serial.decodec.values()[Config.getSerialDecodec().ordinal()].decode(msg);
+                //6.正文长度
+                out.writeInt(bytes.length);
+        
+                //消息正文
+                out.writeBytes(bytes);
+        
+                outList.add(out);
+            }
+        
+            @Override
+            protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
+        
+                Message message = null;
+                byte[] bytes_magic = new byte[magic_num.length];
+                //1.魔数
+                in.readBytes(bytes_magic, 0, magic_num.length);
+        
+                ByteBuf buffer =  ByteBufAllocator.DEFAULT.buffer(bytes_magic.length);
+                buffer.writeBytes(bytes_magic);
+                //版本号
+                byte version = in.readByte();
+                //序列化算法
+                byte serializerType = in.readByte();
+                //指令
+                int  messageType= in.readInt();
+                //请求序号
+                int sequenceId = in.readInt();
+                //无意义数据
+                in.readByte();
+                //对象长度
+                int lenth = in.readInt();
+                byte[] bytes = new byte[lenth];
+                in.readBytes(bytes,0,lenth);
+                //反序列化为对象
+                /*if(serializerType == 0){
+                    //使用jdk转对象
+                    ByteArrayInputStream bis = new ByteArrayInputStream(bytes);
+                    ObjectInputStream ois = new ObjectInputStream(bis);
+                    message =(Message) ois.readObject();
+                }*/
+        
+                Class<? extends Message> messageClass = Message.getMessageClass(messageType);
+        
+                message = Serial.decodec.values()[serializerType].encode(messageClass, bytes);
+                log.debug("魔数是:{},版本号:{},序列化算法:{},:请求序号:{},{},对象长度:{}", StandardCharsets.UTF_8.decode(buffer.nioBuffer()),version,serializerType,messageType,sequenceId,lenth);
+                log.debug("{}",message);
+                out.add(message);
+            }
+        }
+        ```
+
+### 优化
+
+##### 参数调优
+
+##### CONNECT_TIMEOUT_MILLIS
+
+- 用在客户端建立连接时，如果在指定毫秒内无法连接，会抛出timeout异常
+
+- SO_TIMEOUT只要用在阻塞io，阻塞IO中accept，read等都是无限等待的，如果不希望永远阻塞，使用它调整超时时间
+
+- 超时时间的设置java连接超时时间为2S
+
+- 连接超时的本质上是一个定时任务，在到达连接的超时时间就会报一个连接超时的异常，其中的future的对象和连接使用的超时对象是一个对象
+
+  ```java
+  @Slf4j
+  public class ConnectTomeOut {
+      public static void main(String[] args) {
+          try {
+              Bootstrap bootstrap = new Bootstrap();
+              bootstrap.group(new NioEventLoopGroup());
+              bootstrap.channel(NioSocketChannel.class);
+              bootstrap.option(ChannelOption.CONNECT_TIMEOUT_MILLIS,5000);
+              bootstrap.handler(new LoggingHandler());
+              ChannelFuture future = bootstrap.connect(new InetSocketAddress("124.221.132.142", 8081));
+              future.sync().channel().closeFuture().sync();
+          } catch (InterruptedException e) {
+              e.printStackTrace();
+              log.debug(e.getMessage());
+          }
+      }
+  }
+  ```
+
+- #### 源码
+
+  ```java
+  //connectPromise,两个线程之间数据交互
+  if (connectTimeoutMillis > 0) {
+                          connectTimeoutFuture = eventLoop().schedule(new Runnable() {
+                              @Override
+                              public void run() {
+                                  ChannelPromise connectPromise = AbstractNioChannel.this.connectPromise;
+                                  if (connectPromise != null && !connectPromise.isDone()
+                                          && connectPromise.tryFailure(new ConnectTimeoutException(
+                                                  "connection timed out: " + remoteAddress))) {
+                                      close(voidPromise());
+                                  }
+                              }
+                          }, connectTimeoutMillis, TimeUnit.MILLISECONDS);
+                      }
+  ```
+
+  
+
+##### :bulb:option和childOption的差别
+
+1. 在ServerBootstrap()中它的option()，是给ServerSocketChannel配置参数
+2. 在ServerBootstrap()中它的childOption()，是给SocketChannel配置参数
+3. 在BootStrap()他的option(),是给SockrtChannel配置参数	
+
+##### SO_BACKLOG
+
+- 属于ServerSocketChannel参数
+
+##### 三次握手
+
+- 首先是数据准备阶段
+  - client端：在数据准备好之后开始connect
+  - server端：配置好bind，listen数据
+  - syns queue： 半连接队列
+  - accept queue：全连接队列
+  - 第一次握手，client发送SYN到server，状态修改为SYN_SEND，server收到，状态修改为SYN_REVD，并将该请求放入sync_queue队列
+  - 第二次握手，server回复SYN+ACK给client，client收到，状态修改为ESTABLISHED，并发送ACK给server
+  - 第三次握手，server收到ACK，状态修改为ESTABLISHED，将该请求从sync queue放入accept queue
+
+:bulb:在相关设置
+
+- 在linux2.2之前，backlog大小包括两个队列的大小，在2.2之后，分别用下面两个参数来控制
+- sync queue --半连接队列
+  - 大小通过/proc/sys/net/ipv4/tcp_max_syn_backlog指定，在syncookies启动的情况下，逻辑上没有最大值限制，这个设置便被忽略
+- accept queue--全连接队列
+  - 其大小通过/proc/sys/net/core/somaxconn指定，在使用函数listen时，内核会根据传入的backlog参数与系统参数，取二者的较小值
+  - 如果accept queue队列满了，server将会发送一个拒绝连接的错误信息到client
+- netty通过ChannelOption.SO_BACKLOG来设置大小
+
+```java
+public class BlockLogServer {
+    public static void main(String[] args) {
+        try {
+            ServerBootstrap serverBootstrap = new ServerBootstrap();
+            serverBootstrap.group(new NioEventLoopGroup());
+            serverBootstrap.option(ChannelOption.SO_BACKLOG,3);//设置连接为两个
+            serverBootstrap.channel(NioServerSocketChannel.class);
+            serverBootstrap.childHandler(new LoggingHandler());
+            ChannelFuture channelFuture = serverBootstrap.bind(8080);
+            channelFuture.sync().channel().read();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+    }
+}
+```
+
+##### Ukinit-n
+
+- 属于操作系统参数
+
+##### TCP_NODELAY:是否开启nagle算法 false开启 ，true关闭，建议关闭
+
+- 属于SocketChannel参数
+
+##### SO_SNDBUF&SO_RCVBUF:参数不建议调整
+
+- SO_SNDBUF属于SocketChannel参数
+- SO_RCVBUF即可用于SocketChannel参数，也可以用于ServerSocketChannel参数（建议设置到ServerSocketChannel）
+
+https://www.bilibili.com/video/BV1py4y1E7oA/?p=127&spm_id_from=pageDriver&vd_source=15cac809b169713f965c1032f507b775
 
 # Netty源码分析
 

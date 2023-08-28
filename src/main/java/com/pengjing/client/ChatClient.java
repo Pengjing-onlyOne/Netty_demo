@@ -10,7 +10,7 @@ import com.pengjing.message.GroupQuitRequestMessage;
 import com.pengjing.message.LoginRequestMessage;
 import com.pengjing.message.LoginResponseMessage;
 import com.pengjing.message.PingMessage;
-import com.pengjing.protocol.MessageDecodec4Json;
+import com.pengjing.protocol.MessageDecodecSharble;
 import com.pengjing.protocol.ProcotolFrameDecoder;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
@@ -48,7 +48,8 @@ public class ChatClient {
     public static void main(String[] args) {
         NioEventLoopGroup workerEvent = new NioEventLoopGroup();
         LoggingHandler LOGGING_HANDLER = new LoggingHandler(LogLevel.DEBUG);
-        MessageDecodec4Json MESSAGEDECODECSHARBLE = new MessageDecodec4Json();
+//        MessageDecodec4Json MESSAGEDECODECSHARBLE = new MessageDecodec4Json();
+        MessageDecodecSharble MESSAGEDECODECSHARBLE = new MessageDecodecSharble();
         //线程之间通信
         CountDownLatch WAIT_FORLOGIN = new CountDownLatch(1);
         AtomicBoolean LOGIN = new AtomicBoolean(false);

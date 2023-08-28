@@ -1,5 +1,6 @@
 package com.pengjing.protocol;
 
+import com.pengjing.config.Config;
 import com.pengjing.message.Message;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
@@ -8,10 +9,6 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.MessageToMessageCodec;
 import lombok.extern.slf4j.Slf4j;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
@@ -37,7 +34,7 @@ public class MessageDecodecSharble extends MessageToMessageCodec<ByteBuf, Messag
         //2.版本号
         out.writeByte(1);
         //3.序列化算法
-        out.writeByte(0);
+        out.writeByte(Config.getSerialDecodec().ordinal());
         //4.指令类型
         out.writeInt(msg.getMessageType());
         //5.请求序号
@@ -45,11 +42,12 @@ public class MessageDecodecSharble extends MessageToMessageCodec<ByteBuf, Messag
         //无意义,对齐使用
         out.writeByte(0xff);
         //获取对象字节
-        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        /*ByteArrayOutputStream bos = new ByteArrayOutputStream();
         ObjectOutputStream oos = new ObjectOutputStream(bos);
         oos.writeObject(msg);
         //对象
-        byte[] bytes = bos.toByteArray();
+        byte[] bytes = bos.toByteArray();*/
+        byte[] bytes = Serial.decodec.values()[Config.getSerialDecodec().ordinal()].decode(msg);
         //6.正文长度
         out.writeInt(bytes.length);
 
@@ -84,12 +82,16 @@ public class MessageDecodecSharble extends MessageToMessageCodec<ByteBuf, Messag
         byte[] bytes = new byte[lenth];
         in.readBytes(bytes,0,lenth);
         //反序列化为对象
-        if(serializerType == 0){
+        /*if(serializerType == 0){
             //使用jdk转对象
             ByteArrayInputStream bis = new ByteArrayInputStream(bytes);
             ObjectInputStream ois = new ObjectInputStream(bis);
             message =(Message) ois.readObject();
-        }
+        }*/
+
+        Class<? extends Message> messageClass = Message.getMessageClass(messageType);
+
+        message = Serial.decodec.values()[serializerType].encode(messageClass, bytes);
         log.debug("魔数是:{},版本号:{},序列化算法:{},:请求序号:{},{},对象长度:{}", StandardCharsets.UTF_8.decode(buffer.nioBuffer()),version,serializerType,messageType,sequenceId,lenth);
         log.debug("{}",message);
         out.add(message);
