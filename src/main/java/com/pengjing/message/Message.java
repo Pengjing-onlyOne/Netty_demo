@@ -49,7 +49,7 @@ public abstract class Message implements Serializable {
      */
     public static final int  RPC_MESSAGE_TYPE_RESPONSE = 102;
 
-    private static final Map<Integer, Class<? extends Message>> messageClasses = new HashMap<>();
+    public static final Map<Integer, Class<? extends Message>> messageClasses = new HashMap<>();
 
     static {
         messageClasses.put(LoginRequestMessage, LoginRequestMessage.class);
@@ -66,6 +66,8 @@ public abstract class Message implements Serializable {
         messageClasses.put(GroupChatResponseMessage, GroupChatResponseMessage.class);
         messageClasses.put(GroupMembersRequestMessage, GroupMembersRequestMessage.class);
         messageClasses.put(GroupMembersResponseMessage, GroupMembersResponseMessage.class);
+        messageClasses.put(PingMessage, PingMessage.class);
+        messageClasses.put(PongMessage, PongMessage.class);
         messageClasses.put(RPC_MESSAGE_TYPE_REQUEST, RpcRequestMessage.class);
         messageClasses.put(RPC_MESSAGE_TYPE_RESPONSE, RpcResponseMessage.class);
     }
