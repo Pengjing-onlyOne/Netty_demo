@@ -3187,11 +3187,13 @@ public class BlockLogServer {
 }
 ```
 
-##### Ukinit-n
+##### Ulinit-n:限制一个进程同时打开的文件描述符的数据量 
 
 - 属于操作系统参数
 
 ##### TCP_NODELAY:是否开启nagle算法 false开启 ，true关闭，建议关闭
+
+- nagle算法:让数据尽可能多的一起发送，会导致数据延迟送达
 
 - 属于SocketChannel参数
 
@@ -3200,7 +3202,25 @@ public class BlockLogServer {
 - SO_SNDBUF属于SocketChannel参数
 - SO_RCVBUF即可用于SocketChannel参数，也可以用于ServerSocketChannel参数（建议设置到ServerSocketChannel）
 
-https://www.bilibili.com/video/BV1py4y1E7oA/?p=127&spm_id_from=pageDriver&vd_source=15cac809b169713f965c1032f507b775
+##### ALLOCATOR:分配器
+
+- 属于SocketChannel参数
+- 用来分配ByteBuf，ctx.alloc();
+
+```java
+//设置系统参数，需要知道怎么找到相关参数，并修改
+-Dio.netty.allocator.type=unpooled  
+-Dio.netty.noPreferDirect=true
+```
+
+##### RCVBUF_ALLOCATOR:
+
+- 属于SocketChannel参数
+- 负责入栈数据的分配，决定入栈缓冲区的大小(并可以动态调整)，廷议采用direct直接内存，具体池化还是还是非池化由allocator决定
+
+![image-20230830224319839](image/image-20230830224319839.png)
+
+https://www.bilibili.com/video/BV1py4y1E7oA/?p=129&spm_id_from=pageDriver&vd_source=15cac809b169713f965c1032f507b775
 
 # Netty源码分析
 
