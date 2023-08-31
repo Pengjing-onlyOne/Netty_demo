@@ -3220,7 +3220,156 @@ public class BlockLogServer {
 
 ![image-20230830224319839](image/image-20230830224319839.png)
 
-https://www.bilibili.com/video/BV1py4y1E7oA/?p=129&spm_id_from=pageDriver&vd_source=15cac809b169713f965c1032f507b775
+- 设置了ALLOCATOR参数之后，得到的消息还是存在直接内存中：是为了在通信的过程中提高效率
+- 在不设置初始值的时候系统会给与它初始值最大不会超过65532，如果不超过默认的1024的话会动态的减少，最少得话是64
+
+##### RCVBUF_ALLOCATOR VS ALLOCATOR
+
+- RCVBUF_ALLOCATOR可以动态的设置缓冲区的大小，并且规定使用的不会是堆内存而是直接内存
+- 池化还是非池化是由ALLOCATOR控制的
+- 二者共同协作完成对bytBbuf的初始化
+
+## RPC框架
+
+#### 在原来的聊天项目的基础上新增Rpc请求和响应的消息
+
+```java
+@Data
+public abstract class Message implements Serializable {
+
+    /**
+     * 根据消息类型字节，获得对应的消息 class
+     * @param messageType 消息类型字节
+     * @return 消息 class
+     */
+    public static Class<? extends Message> getMessageClass(int messageType) {
+        return messageClasses.get(messageType);
+    }
+
+    private int sequenceId;
+
+    private int messageType;
+
+    public abstract int getMessageType();
+
+    public static final int LoginRequestMessage = 0;
+    public static final int LoginResponseMessage = 1;
+    public static final int ChatRequestMessage = 2;
+    public static final int ChatResponseMessage = 3;
+    public static final int GroupCreateRequestMessage = 4;
+    public static final int GroupCreateResponseMessage = 5;
+    public static final int GroupJoinRequestMessage = 6;
+    public static final int GroupJoinResponseMessage = 7;
+    public static final int GroupQuitRequestMessage = 8;
+    public static final int GroupQuitResponseMessage = 9;
+    public static final int GroupChatRequestMessage = 10;
+    public static final int GroupChatResponseMessage = 11;
+    public static final int GroupMembersRequestMessage = 12;
+    public static final int GroupMembersResponseMessage = 13;
+    public static final int PingMessage = 14;
+    public static final int PongMessage = 15;
+    /**
+     * 请求类型 byte 值
+     */
+    public static final int RPC_MESSAGE_TYPE_REQUEST = 101;
+    /**
+     * 响应类型 byte 值
+     */
+    public static final int  RPC_MESSAGE_TYPE_RESPONSE = 102;
+
+    public static final Map<Integer, Class<? extends Message>> messageClasses = new HashMap<>();
+
+    static {
+        messageClasses.put(LoginRequestMessage, LoginRequestMessage.class);
+        messageClasses.put(LoginResponseMessage, LoginResponseMessage.class);
+        messageClasses.put(ChatRequestMessage, ChatRequestMessage.class);
+        messageClasses.put(ChatResponseMessage, ChatResponseMessage.class);
+        messageClasses.put(GroupCreateRequestMessage, GroupCreateRequestMessage.class);
+        messageClasses.put(GroupCreateResponseMessage, GroupCreateResponseMessage.class);
+        messageClasses.put(GroupJoinRequestMessage, GroupJoinRequestMessage.class);
+        messageClasses.put(GroupJoinResponseMessage, GroupJoinResponseMessage.class);
+        messageClasses.put(GroupQuitRequestMessage, GroupQuitRequestMessage.class);
+        messageClasses.put(GroupQuitResponseMessage, GroupQuitResponseMessage.class);
+        messageClasses.put(GroupChatRequestMessage, GroupChatRequestMessage.class);
+        messageClasses.put(GroupChatResponseMessage, GroupChatResponseMessage.class);
+        messageClasses.put(GroupMembersRequestMessage, GroupMembersRequestMessage.class);
+        messageClasses.put(GroupMembersResponseMessage, GroupMembersResponseMessage.class);
+        messageClasses.put(PingMessage, PingMessage.class);
+        messageClasses.put(PongMessage, PongMessage.class);
+        messageClasses.put(RPC_MESSAGE_TYPE_REQUEST, RpcRequestMessage.class);
+        messageClasses.put(RPC_MESSAGE_TYPE_RESPONSE, RpcResponseMessage.class);
+    }
+
+}
+```
+
+#### 请求消息
+
+```java
+@Getter
+@ToString(callSuper = true)
+public class RpcRequestMessage extends Message {
+
+    /**
+     * 调用的接口全限定名，服务端根据它找到实现
+     */
+    private String interfaceName;
+    /**
+     * 调用接口中的方法名
+     */
+    private String methodName;
+    /**
+     * 方法返回类型
+     */
+    private Class<?> returnType;
+    /**
+     * 方法参数类型数组
+     */
+    private Class[] parameterTypes;
+    /**
+     * 方法参数值数组
+     */
+    private Object[] parameterValue;
+
+    public RpcRequestMessage(int sequenceId, String interfaceName, String methodName, Class<?> returnType, Class[] parameterTypes, Object[] parameterValue) {
+        super.setSequenceId(sequenceId);
+        this.interfaceName = interfaceName;
+        this.methodName = methodName;
+        this.returnType = returnType;
+        this.parameterTypes = parameterTypes;
+        this.parameterValue = parameterValue;
+    }
+
+    @Override
+    public int getMessageType() {
+        return RPC_MESSAGE_TYPE_REQUEST;
+    }
+}
+```
+
+#### 响应消息
+
+```java
+@Data
+@ToString(callSuper = true)
+public class RpcResponseMessage extends Message {
+    /**
+     * 返回值
+     */
+    private Object returnValue;
+    /**
+     * 异常值
+     */
+    private Exception exceptionValue;
+
+    @Override
+    public int getMessageType() {
+        return RPC_MESSAGE_TYPE_RESPONSE;
+    }
+}
+```
+
+https://www.bilibili.com/video/BV1py4y1E7oA?p=132&spm_id_from=pageDriver&vd_source=15cac809b169713f965c1032f507b775
 
 # Netty源码分析
 

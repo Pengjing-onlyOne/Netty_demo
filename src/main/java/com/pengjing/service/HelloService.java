@@ -1,5 +1,5 @@
 package com.pengjing.service;
 
-public interface HelloService {
+public interface  HelloService {
     String sayHello(String name);
 }

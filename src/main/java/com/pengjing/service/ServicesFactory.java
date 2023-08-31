@@ -1,7 +1,6 @@
-/*
 package com.pengjing.service;
 
-import cn.itcast.config.Config;
+import com.pengjing.config.Config;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -36,4 +35,3 @@ public class ServicesFactory {
         return (T) map.get(interfaceClass);
     }
 }
-*/
