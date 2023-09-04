@@ -92,7 +92,7 @@ public class MessageDecodecSharble extends MessageToMessageCodec<ByteBuf, Messag
         Class<? extends Message> messageClass = Message.getMessageClass(messageType);
 
         message = Serial.decodec.values()[serializerType].encode(messageClass, bytes);
-        log.debug("魔数是:{},版本号:{},序列化算法:{},:请求序号:{},{},对象长度:{}", StandardCharsets.UTF_8.decode(buffer.nioBuffer()),version,serializerType,messageType,sequenceId,lenth);
+        log.debug("魔数是:{},版本号:{},序列化算法:{},:请求序号:{},sequenceId:{},对象长度:{}", StandardCharsets.UTF_8.decode(buffer.nioBuffer()),version,serializerType,messageType,sequenceId,lenth);
         log.debug("{}",message);
         out.add(message);
     }
