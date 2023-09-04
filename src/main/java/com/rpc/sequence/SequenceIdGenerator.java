@@ -10,10 +10,10 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 @Slf4j
 public class SequenceIdGenerator {
-    private static final AtomicInteger squenceId = new AtomicInteger(1);
+    private static final AtomicInteger squenceId = new AtomicInteger();
 
     public  static int nextId(){
-        return squenceId.getAndIncrement();
+        return squenceId.incrementAndGet();
     }
 
 

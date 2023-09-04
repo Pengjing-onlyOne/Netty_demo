@@ -32,6 +32,7 @@ public class RpcRequestMessageHandler extends SimpleChannelInboundHandler<RpcReq
             e.printStackTrace();
             rpcResponseMessage.setExceptionValue(e);
         }
+        rpcResponseMessage.setSequenceId(rpcRequestMessage.getSequenceId());
         ctx.writeAndFlush(rpcResponseMessage);
     }
 

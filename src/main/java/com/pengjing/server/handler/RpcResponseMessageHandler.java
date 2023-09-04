@@ -1,6 +1,7 @@
 package com.pengjing.server.handler;
 
 import com.pengjing.message.RpcResponseMessage;
+import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.util.concurrent.Promise;
@@ -18,6 +19,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * rpc的响应处理器
  */
 @Slf4j
+@ChannelHandler.Sharable
 public class RpcResponseMessageHandler extends SimpleChannelInboundHandler<RpcResponseMessage> {
 
     //创建一个map用于存储请求方发送的消息
@@ -42,6 +44,6 @@ public class RpcResponseMessageHandler extends SimpleChannelInboundHandler<RpcRe
             }else {
                 promise.setSuccess(returnValue);
             }
-        }
+        };
     }
 }

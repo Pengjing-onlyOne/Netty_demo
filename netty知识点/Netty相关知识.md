@@ -3369,7 +3369,7 @@ public class RpcResponseMessage extends Message {
 }
 ```
 
-https://www.bilibili.com/video/BV1py4y1E7oA?p=132&spm_id_from=pageDriver&vd_source=15cac809b169713f965c1032f507b775
+https://www.bilibili.com/video/BV1py4y1E7oA/?p=136&spm_id_from=pageDriver&vd_source=15cac809b169713f965c1032f507b775
 
 # Netty源码分析
 

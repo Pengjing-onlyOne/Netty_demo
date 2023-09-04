@@ -44,7 +44,12 @@ public class RpcClientManager {
 
             int sequenceId = SequenceIdGenerator.nextId();
             //创建一个获取序列号的方式
-            RpcRequestMessage msg = new RpcRequestMessage(sequenceId, serviceClass.getName(), method.getName(), method.getReturnType(), method.getParameterTypes(), args);
+            RpcRequestMessage msg = new RpcRequestMessage(sequenceId,
+                    serviceClass.getName(),
+                    method.getName(),
+                    method.getReturnType(),
+                    method.getParameterTypes(),
+                    args);
 
             //将消息发送
             createChannel().writeAndFlush(msg);
