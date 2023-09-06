@@ -22,7 +22,7 @@ public class RpcServer {
     public static void main(String[] args) {
         //创建两个工作对象
         NioEventLoopGroup bossEvent = new NioEventLoopGroup();
-        NioEventLoopGroup workerEvent = new NioEventLoopGroup(2);
+        NioEventLoopGroup workerEvent = new NioEventLoopGroup();
         //创建日志
         LoggingHandler LOGGING_HANDLER = new LoggingHandler(LogLevel.DEBUG);
         //创建消息处理
@@ -32,8 +32,8 @@ public class RpcServer {
 
         try {
             ServerBootstrap serverBootstrap = new ServerBootstrap();
-            serverBootstrap.group(bossEvent,workerEvent);
             serverBootstrap.channel(NioServerSocketChannel.class);
+            serverBootstrap.group(bossEvent,workerEvent);
             serverBootstrap.childHandler(new ChannelInitializer<SocketChannel>() {
                 @Override
                 protected void initChannel(SocketChannel ch) throws Exception {

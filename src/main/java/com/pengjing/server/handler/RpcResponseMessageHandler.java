@@ -18,6 +18,11 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * rpc的响应处理器
  */
+
+/**
+ * 泛型通配符: <?> :只能在泛型容器中获取值,不能向泛型容器中设置值,可以存放null
+ * Sharable:注解不能存在状态信息,需不需要添加主要是制作者考虑自行考虑能不能添加这个注解
+ */
 @Slf4j
 @ChannelHandler.Sharable
 public class RpcResponseMessageHandler extends SimpleChannelInboundHandler<RpcResponseMessage> {
@@ -28,7 +33,7 @@ public class RpcResponseMessageHandler extends SimpleChannelInboundHandler<RpcRe
 
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, RpcResponseMessage msg) throws Exception {
-        log.debug("{}",msg);
+        log.debug("打印数据:{}",msg);
 
         //根据返回的对象填充promise对象
         //获取promise
@@ -39,11 +44,15 @@ public class RpcResponseMessageHandler extends SimpleChannelInboundHandler<RpcRe
             Object returnValue = msg.getReturnValue();
             //异常对象
             Exception exception = msg.getExceptionValue();
+
             if(exception != null){
+                System.out.println("得到的异常为:"+exception);
                 promise.setFailure(exception);
             }else {
                 promise.setSuccess(returnValue);
             }
         };
+        //处理完消息之后将消息移除
+        promises.remove(msg.getSequenceId());
     }
 }

@@ -31,8 +31,8 @@ public class RpcClientManager {
     public static void main(String[] args) {
         HelloService helloService = getProxyService(HelloService.class);
         System.out.println(helloService.sayHello("zhangsan"));
-        System.out.println(helloService.sayHello("lisi"));
-        System.out.println(helloService.sayHello("wangwu"));
+       /* System.out.println(helloService.sayHello("lisi"));
+        System.out.println(helloService.sayHello("wangwu"));*/
     }
 
     public static <T> T getProxyService(Class<T> serviceClass){
@@ -53,14 +53,14 @@ public class RpcClientManager {
 
             //将消息发送
             createChannel().writeAndFlush(msg);
-            DefaultPromise promise = new DefaultPromise(createChannel().eventLoop());
+            //准备一个空的promise                                         指定promise对象异步接收结果线程
+            DefaultPromise<Object> promise = new DefaultPromise<>(createChannel().eventLoop());
             RpcResponseMessageHandler.promises.put(sequenceId,promise);
 
             //等待结果的返回,无论有没有都会返回并且不会报异常,sync会抛异常
             promise.await();
             //对象的返回使用的是一个promise方式
             if(promise.isSuccess()){
-                System.out.println(".........................");
                 return promise.getNow();
             }else {
                 throw new RuntimeException(promise.cause());
@@ -120,7 +120,7 @@ public class RpcClientManager {
             channel.closeFuture().addListener(future->{
                 eventExecutors.shutdownGracefully();
             });
-        } catch (InterruptedException e) {
+        } catch (Exception e) {
             log.error("client error",e.getMessage());
         }
     }
