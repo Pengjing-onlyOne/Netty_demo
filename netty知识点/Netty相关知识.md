@@ -3369,6 +3369,239 @@ public class RpcResponseMessage extends Message {
 }
 ```
 
+上面实现的是服务器端和客户端的通信,需要实现简单rpc的框架需要用到知识:
+
+- 类的动态代理
+- jdk中的反射
+- 锁的使用
+
+#### rpc连接端的实现
+
+```java
+public static void main(String[] args) {
+        HelloService helloService = getProxyService(HelloService.class);
+        System.out.println(helloService.sayHello("zhangsan"));
+        System.out.println(helloService.sayHello("lisi"));
+        System.out.println(helloService.sayHello("wangwu"));
+    }
+
+    public static <T> T getProxyService(Class<T> serviceClass){
+        //使用代理的方式发送数据
+        ClassLoader classloader = serviceClass.getClassLoader();
+        Class<?>[] interfaces = new Class[]{serviceClass};
+        //1.将方法调用转化为消息对象
+        Object o = Proxy.newProxyInstance(classloader, interfaces, (proxy, method, args) -> {
+
+            int sequenceId = SequenceIdGenerator.nextId();
+            //创建一个获取序列号的方式
+            RpcRequestMessage msg = new RpcRequestMessage(sequenceId,
+                    serviceClass.getName(),
+                    method.getName(),
+                    method.getReturnType(),
+                    method.getParameterTypes(),
+                    args);
+
+            //将消息发送
+            createChannel().writeAndFlush(msg);
+            DefaultPromise promise = new DefaultPromise(createChannel().eventLoop());
+            RpcResponseMessageHandler.promises.put(sequenceId,promise);
+
+            //等待结果的返回,无论有没有都会返回并且不会报异常,sync会抛异常
+            promise.await();
+            //对象的返回使用的是一个promise方式
+            if(promise.isSuccess()){
+                System.out.println(".........................");
+                return promise.getNow();
+            }else {
+                throw new RuntimeException(promise.cause());
+            }
+//            return null;
+        });
+        return (T) o;
+    }
+
+    //创建一个代理类,实现远程调用的接口
+
+    private static Channel channel = null;
+    //添加一个锁
+    private static  final  Object LOCK = new Object();
+    //获取channel方法
+    public static Channel createChannel() {
+        if(channel != null){
+            return channel;
+        }
+        synchronized(LOCK){
+            if(channel != null){
+                return  channel;
+            }else {
+                 initChannel();
+                 return channel;
+            }
+        }
+    }
+
+    private static void initChannel() {
+        NioEventLoopGroup eventExecutors = new NioEventLoopGroup();
+        //日志打印
+        LoggingHandler LOGGING_HANDLER = new LoggingHandler();
+        //消息的编解码
+        MessageDecodecSharble MESSAGE_HANDLER = new MessageDecodecSharble();
+        //rpc请求处理
+        RpcResponseMessageHandler RPC_RESPONSE = new RpcResponseMessageHandler();
+
+        Bootstrap bootstrap = new Bootstrap();
+        bootstrap.group(eventExecutors);
+        bootstrap.channel(NioSocketChannel.class);
+        bootstrap.handler(new ChannelInitializer<SocketChannel>() {
+            @Override
+            protected void initChannel(SocketChannel ch) throws Exception {
+                //解决消息黏包半包
+                ch.pipeline().addLast(new ProcotolFrameDecoder());
+                //打印日志
+                ch.pipeline().addLast(LOGGING_HANDLER);
+                //消息编解码
+                ch.pipeline().addLast(MESSAGE_HANDLER);
+                //处理rpc消息
+                ch.pipeline().addLast(RPC_RESPONSE);
+            }
+        });
+        try {
+             channel = bootstrap.connect(new InetSocketAddress("127.0.0.1", 8080)).sync().channel();
+            channel.closeFuture().addListener(future->{
+                eventExecutors.shutdownGracefully();
+            });
+        } catch (InterruptedException e) {
+            log.error("client error",e.getMessage());
+        }
+    }
+```
+
+#### RPC回复消息处理器
+
+```java
+@Slf4j
+@ChannelHandler.Sharable
+public class RpcResponseMessageHandler extends SimpleChannelInboundHandler<RpcResponseMessage> {
+
+    //创建一个map用于存储请求方发送的消息
+    //保证线程的安全性
+    public static final Map<Integer, Promise<Object>> promises = new ConcurrentHashMap<>();
+
+    @Override
+    protected void channelRead0(ChannelHandlerContext ctx, RpcResponseMessage msg) throws Exception {
+        log.debug("{}",msg);
+
+        //根据返回的对象填充promise对象
+        //获取promise
+        Promise<Object> promise = promises.get(msg.getSequenceId());
+
+        if(promise != null){
+            //成功的对象
+            Object returnValue = msg.getReturnValue();
+            //异常对象
+            Exception exception = msg.getExceptionValue();
+            if(exception != null){
+                promise.setFailure(exception);
+            }else {
+                promise.setSuccess(returnValue);
+            }
+        };
+    }
+}
+```
+
+- 将客户端的连接封装成一个方法,在这个方法里面可以将空的channel赋值为带有连接信息的channel对象
+- 创建一个获取channel对象的方法,为了防止在多线程中重复获取channel对象(**==在创建channel的方法里面使用双重锁,在一开始的时候判断一次公用的channel对象是否为null,然后在添加锁的代码中在添加一个是否为null的判断==**)
+- 对于消息的发送,为了不破坏调用者的习惯,使用的方式
+  - 首先获取一个对象
+    - 对象的获取使用的是动态代理的方式,然后在这个动态代理的方法实现中,将消息发送出去
+    - 对于消息的返回使用的是一个泛型为promise的map对象,在发送消息之前将带有这个线程的执行器创建一个空的promise
+    - 然后使用promise的await()方法等待结果的返回(如果使用的是sync同步器,那么在出现异常的时候会抛出异常,但是await()不会)
+  - 使用获取的对象调用方法
+- 在相应处理器上的做修改
+  - 创建一个带有sequenceId和promise的map对象(这个对象全局可见,可在多线程上使用)
+  - 直接根据服务端的返回对象获取所携带的sequenceId,在map中获取promise对象
+  - 如果对象存在,然后就是在服务器端的对象获取ReturnValue和ExceptionValue
+  - 根据得到的两个对象放入promise中的不同字段中(setSuccess或者setFailure)
+
+#### rpc服务端的实现
+
+```java
+@Slf4j
+public class RpcServer {
+    public static void main(String[] args) {
+        //创建两个工作对象
+        NioEventLoopGroup bossEvent = new NioEventLoopGroup();
+        NioEventLoopGroup workerEvent = new NioEventLoopGroup(2);
+        //创建日志
+        LoggingHandler LOGGING_HANDLER = new LoggingHandler(LogLevel.DEBUG);
+        //创建消息处理
+        MessageDecodecSharble MESSAGE_CODEC = new MessageDecodecSharble();
+        //rpc消息处理
+        RpcRequestMessageHandler RPC_HANDLER = new RpcRequestMessageHandler();
+
+        try {
+            ServerBootstrap serverBootstrap = new ServerBootstrap();
+            serverBootstrap.group(bossEvent,workerEvent);
+            serverBootstrap.channel(NioServerSocketChannel.class);
+            serverBootstrap.childHandler(new ChannelInitializer<SocketChannel>() {
+                @Override
+                protected void initChannel(SocketChannel ch) throws Exception {
+                    //黏包半包处理
+                    ch.pipeline().addLast(new ProcotolFrameDecoder());
+                    //打印日志
+                    ch.pipeline().addLast(LOGGING_HANDLER);
+                    //消息的编解码
+                    ch.pipeline().addLast(MESSAGE_CODEC);
+                    //使用rpc请求
+                    ch.pipeline().addLast(RPC_HANDLER);
+                }
+            });
+
+            Channel channel = serverBootstrap.bind(8080).sync().channel();
+            channel.closeFuture().sync();
+        } catch (InterruptedException e) {
+            log.error("server error",e.getMessage());
+//            e.printStackTrace();
+        }finally {
+            bossEvent.shutdownGracefully();
+            workerEvent.shutdownGracefully();
+        }
+    }
+}
+```
+
+#### 服务器端的请求消息处理
+
+```java
+@Slf4j
+@ChannelHandler.Sharable
+public class RpcRequestMessageHandler extends SimpleChannelInboundHandler<RpcRequestMessage> {
+    @Override
+    protected void channelRead0(ChannelHandlerContext ctx, RpcRequestMessage rpcRequestMessage) throws Exception {
+        RpcResponseMessage rpcResponseMessage = new RpcResponseMessage();
+        try {
+            //使用反射的方法获取请求的对象和方法
+            HelloService service = (HelloService)ServicesFactory.getService(Class.forName(rpcRequestMessage.getInterfaceName()));
+            //根据class获取方法名
+            Method method = service.getClass().getMethod(rpcRequestMessage.getMethodName(), rpcRequestMessage.getParameterTypes());
+            Object invoke = method.invoke(service, rpcRequestMessage.getParameterValue());
+            rpcResponseMessage.setReturnValue(invoke);
+        } catch (Exception e) {
+            e.printStackTrace();
+            rpcResponseMessage.setExceptionValue(e);
+        }
+        rpcResponseMessage.setSequenceId(rpcRequestMessage.getSequenceId());
+        ctx.writeAndFlush(rpcResponseMessage);
+    }
+  }
+```
+
+- 服务器端的处理和普通的处理差不多,建立连接,消息处理
+- 在消息的处理上使用的是反射的方式
+- 根据全限定类型,方法名,方法返回值,方法参数等使用反射来获取请求的结果
+- 最后将得到的对象通过ctx写入到通道中发送给客户端
+
 https://www.bilibili.com/video/BV1py4y1E7oA/?p=136&spm_id_from=pageDriver&vd_source=15cac809b169713f965c1032f507b775
 
 # Netty源码分析
