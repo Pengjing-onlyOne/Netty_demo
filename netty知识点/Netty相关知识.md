@@ -3602,6 +3602,37 @@ public class RpcRequestMessageHandler extends SimpleChannelInboundHandler<RpcReq
 - 根据全限定类型,方法名,方法返回值,方法参数等使用反射来获取请求的结果
 - 最后将得到的对象通过ctx写入到通道中发送给客户端
 
+#### Gson自定义序列化类型
+
+- ==**Gson的序列化中没有包含Class类型,所以需要添加**==
+
+```java
+public static class ClassTypeAdapater implements JsonSerializer<Class>, JsonDeserializer<Class>{
+
+        //反序列化
+        @Override
+        public Class deserialize(JsonElement jsonElement, Type type, JsonDeserializationContext jsonDeserializationContext) throws JsonParseException {
+            try {
+                String asString = jsonElement.getAsString();
+                return Class.forName(asString);
+            } catch (ClassNotFoundException e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+        //序列化
+        @Override
+        public JsonElement serialize(Class aClass, Type type, JsonSerializationContext jsonSerializationContext) {
+            return new JsonPrimitive(aClass.getName());
+//            return null;
+        }
+    }
+
+
+//调用方式,
+Gson gson = new GsonBuilder().registerTypeAdapter(Class.class, new Config.ClassTypeAdapater()).create();
+```
+
 https://www.bilibili.com/video/BV1py4y1E7oA/?p=136&spm_id_from=pageDriver&vd_source=15cac809b169713f965c1032f507b775
 
 # Netty源码分析
