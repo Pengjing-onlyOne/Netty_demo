@@ -1,13 +1,11 @@
 package com.pengjing.protocol;
 
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.google.gson.JsonSyntaxException;
+import com.pengjing.config.Config;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
+import java.io.*;
 import java.nio.charset.StandardCharsets;
 
 /**
@@ -53,7 +51,8 @@ public interface Serial {
              public <T> byte[] decode(T object) {
 
                  try {
-                     Gson gson = new Gson();
+                     //使用自定义的Gson序列化方式,添加Class的序列化
+                     Gson gson = new GsonBuilder().registerTypeAdapter(Class.class, new Config.ClassTypeAdapater()).create();
                      return gson.toJson(object).getBytes(StandardCharsets.UTF_8);
                  } catch (Exception e) {
                      throw new RuntimeException("序列化失败");
@@ -63,7 +62,7 @@ public interface Serial {
              @Override
              public <T> T encode(Class<T> clazz, byte[] bytes) {
                  try {
-                     Gson gson = new Gson();
+                     Gson gson = new GsonBuilder().registerTypeAdapter(Class.class, new Config.ClassTypeAdapater()).create();
                      String json = new String(bytes, StandardCharsets.UTF_8);
                      return gson.fromJson(json,clazz);
                  } catch (JsonSyntaxException e) {

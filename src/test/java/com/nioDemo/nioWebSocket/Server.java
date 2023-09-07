@@ -25,7 +25,6 @@ public class Server {
 
         //1 创建服务器
         ServerSocketChannel ssc = ServerSocketChannel.open();
-
         //2 绑定端口
         ssc.bind(new InetSocketAddress(8080));
 

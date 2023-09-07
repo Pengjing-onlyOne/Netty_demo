@@ -53,7 +53,7 @@ public class MessageDecodecSharble extends MessageToMessageCodec<ByteBuf, Messag
 
         //消息正文
         out.writeBytes(bytes);
-
+//        log.debug("得到的对象为:{}",out.nioBuffer());
         outList.add(out);
     }
 
@@ -88,7 +88,6 @@ public class MessageDecodecSharble extends MessageToMessageCodec<ByteBuf, Messag
             ObjectInputStream ois = new ObjectInputStream(bis);
             message =(Message) ois.readObject();
         }*/
-
         Class<? extends Message> messageClass = Message.getMessageClass(messageType);
 
         message = Serial.decodec.values()[serializerType].encode(messageClass, bytes);

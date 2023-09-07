@@ -1,24 +1,11 @@
 package com.pengjing.client;
 
-import com.alibaba.fastjson2.JSON;
-import com.pengjing.message.ChatRequestMessage;
-import com.pengjing.message.GroupChatRequestMessage;
-import com.pengjing.message.GroupCreateRequestMessage;
-import com.pengjing.message.GroupJoinRequestMessage;
-import com.pengjing.message.GroupMembersRequestMessage;
-import com.pengjing.message.GroupQuitRequestMessage;
-import com.pengjing.message.LoginRequestMessage;
-import com.pengjing.message.LoginResponseMessage;
-import com.pengjing.message.PingMessage;
-import com.pengjing.protocol.MessageDecodec4Json;
+import com.google.gson.Gson;
+import com.pengjing.message.*;
 import com.pengjing.protocol.MessageDecodecSharble;
 import com.pengjing.protocol.ProcotolFrameDecoder;
 import io.netty.bootstrap.Bootstrap;
-import io.netty.channel.Channel;
-import io.netty.channel.ChannelDuplexHandler;
-import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelInboundHandlerAdapter;
-import io.netty.channel.ChannelInitializer;
+import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
@@ -94,7 +81,7 @@ public class ChatClient {
                                 }
                                 WAIT_FORLOGIN.countDown();
                             }
-                            System.out.println("得到的消息是:{}"+JSON.toJSONString(msg));
+                            System.out.println("得到的消息是:{}"+new Gson().toJson(msg));
 //                            log.debug("得到的消息是:{}"+JSON.toJSONString(msg));
                         }
 

@@ -1,6 +1,5 @@
 package com.encodec.protocol;
 
-import com.alibaba.fastjson2.JSON;
 import com.encodec.message.Message;
 import com.google.gson.Gson;
 import com.utils.BytebuUtils;
@@ -46,7 +45,7 @@ public class MessageDecodec4Json extends MessageToMessageCodec<ByteBuf, Message>
         buffer.writeInt(msg.getMessageType());
         //请求序号
         buffer.writeInt(msg.getSequenceId());
-        byte[] messageBytes = JSON.toJSONBytes(msg);
+        byte[] messageBytes = new Gson().toJson(msg).getBytes(StandardCharsets.UTF_8);
         //添加无意义字段
         buffer.writeByte(0xff);
         //正文长度
