@@ -30,14 +30,21 @@ selectionkey.interesOps(Selectionkey.OP_ACCEPT);
 
 
 1. init & register regFuture 处理
-   1. init mian
+   1. init ==**mian**==
       1. 创建NioServerSocketChannel  ==**main线程**==
+         - ==**Selector selector = Selector.opne(); **==
       2. 添加NioServerSocketChannel 初始化handler  ==**main**==
-         1. 初始化handler等待调用
-   2. register
+         1. 初始化handler等待调用 （==**未被调用**==）
+            - ==**向nio ssc加入acceptor handler(在accpet时间发生后建立连接 )**==
+   2. register（==**切换线程**==）
       1. 启动nio boss线程 ==**main线程**==
       2. 原生ssc注册至selector未关注事件 ==**nio-thread**==
+         - ==**SelectionKey selectionKey = ssc.register(selector,0,nettySsc)**==
       3. 执行NioServerSocketChannel 初始化 handler ==**nio-thread**==
 2. regFuture等待回调 doBind0  ==**nio-thread**==
    1. 原生ServerSocketChannel 绑定   ==**nio-thread**==
+      - ==**ssc.bind(new InetSocketAddress(8080),backlog )**==
    2. 出发NioServerSocketChannel active事件   ==**nio-thread**==  
+      - headContext channelActive
+        - ==**selectionkey.interesOps(Selectionkey.OP_ACCEPT);**==
+
